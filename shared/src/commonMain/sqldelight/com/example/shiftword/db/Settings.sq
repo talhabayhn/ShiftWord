@@ -8,14 +8,17 @@ import kotlin.Boolean;
 -- together (rather than an SQL upsert) -- the default SqlDelight dialect here (sqlite_3_18)
 -- doesn't support `ON CONFLICT DO UPDATE`, and a plain `INSERT OR REPLACE` with only one column
 -- named would silently reset the other column back to its default every time.
+-- Feature 1B: opt-in, off-by-default drag-time win highlight (GAME_DESIGN.md) -- a real
+-- difficulty lever, not cosmetic, so it must default to 0 like every other assist would.
 CREATE TABLE settings (
     id INTEGER NOT NULL PRIMARY KEY,
     soundEnabled INTEGER AS Boolean NOT NULL DEFAULT 1,
-    language TEXT NOT NULL DEFAULT 'tr'
+    language TEXT NOT NULL DEFAULT 'tr',
+    winHighlightEnabled INTEGER AS Boolean NOT NULL DEFAULT 0
 );
 
 selectSettings:
 SELECT * FROM settings WHERE id = 0;
 
 upsertSettings:
-INSERT OR REPLACE INTO settings(id, soundEnabled, language) VALUES (0, ?, ?);
+INSERT OR REPLACE INTO settings(id, soundEnabled, language, winHighlightEnabled) VALUES (0, ?, ?, ?);

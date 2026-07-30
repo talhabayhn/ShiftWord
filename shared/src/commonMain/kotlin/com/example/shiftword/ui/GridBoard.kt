@@ -28,11 +28,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import com.example.shiftword.domain.apply
 import com.example.shiftword.model.Axis
 import com.example.shiftword.model.Grid
 import com.example.shiftword.model.Move
 import com.example.shiftword.ui.theme.DustyLavender
 import com.example.shiftword.ui.theme.LavenderTileTint
+import com.example.shiftword.ui.theme.SageGreen
 import com.example.shiftword.ui.theme.SurfaceWhite
 import com.example.shiftword.ui.theme.TextPrimary
 import com.example.shiftword.ui.theme.TileCornerRadius
@@ -58,6 +60,11 @@ fun GridBoard(
     explodingCellIds: Set<Long>,
     onMove: (Move) -> Unit,
     modifier: Modifier = Modifier,
+    // Feature 1B (GAME_DESIGN.md): off by default -- a real difficulty lever, not a cosmetic
+    // default. When true, and the axis currently being dragged would spell one of [targetWords]
+    // if released right now, that row/column is highlighted.
+    winHighlightEnabled: Boolean = false,
+    targetWords: Set<String> = emptySet(),
 ) {
     val size = grid.size
     val density = LocalDensity.current
@@ -68,6 +75,24 @@ fun GridBoard(
     var dragOffsetPx by remember { mutableStateOf(0f) }
     var dragStartRow by remember { mutableStateOf(0) }
     var dragStartCol by remember { mutableStateOf(0) }
+
+    // Feature 1B: whether releasing the drag right now would complete a target word. Mirrors
+    // GridBoard's own onDragEnd steps-rounding exactly, so the highlight never promises a win
+    // that release wouldn't actually produce. Grid.apply is O(size^2) -- cheap enough to
+    // recompute every recomposition at this grid's scale (4x4/5x5), same as the rest of this
+    // composable's per-frame drag math.
+    val wouldWin = run {
+        val axis = dragAxis
+        if (!winHighlightEnabled || axis == null) return@run false
+        val steps = (dragOffsetPx / cellSizePx).roundToInt()
+        if (steps == 0) return@run false
+        val shifted = grid.apply(Move(axis, dragIndex, forward = steps > 0))
+        val resultWord = when (axis) {
+            Axis.Row -> shifted.cells[dragIndex].joinToString("") { it.letter.toString() }
+            Axis.Col -> (0 until size).joinToString("") { r -> shifted.cells[r][dragIndex].letter.toString() }
+        }
+        resultWord in targetWords
+    }
 
     Box(
         modifier = modifier
@@ -152,13 +177,58 @@ fun GridBoard(
                                 scaleY = explodeScale
                                 alpha = explodeAlpha
                             }
-                            .background(if (isLiveDraggingThis) LavenderTileTint else SurfaceWhite, tileShape)
+                            .background(
+                                if (isLiveDraggingThis) (if (wouldWin) SageGreen else LavenderTileTint) else SurfaceWhite,
+                                tileShape,
+                            )
                             .border(1.dp, if (isLiveDraggingThis) DustyLavender else WarmSand, tileShape),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(text = cell.letter.toString(), style = tileLetterStyle(), color = TextPrimary)
                     }
                 }
+            }
+        }
+
+        // Feature 1A (always on): the letter that will wrap in from the opposite edge once this
+        // drag is released -- purely cosmetic early visibility, no new information vs. what the
+        // wrap-around mechanic already makes computable, it just removes the "pop in only on
+        // release" lag. Only one shift is ever committed per gesture regardless of how far the
+        // drag travels (Move has no magnitude), so only the single upcoming wrap letter is shown,
+        // fading in over the first cell-width of travel and staying fully visible beyond that.
+        val ghostAxis = dragAxis
+        if (ghostAxis != null && dragOffsetPx != 0f) {
+            val forward = dragOffsetPx > 0f
+            val ghostLetter = when (ghostAxis) {
+                Axis.Row -> if (forward) grid.cells[dragIndex][size - 1].letter else grid.cells[dragIndex][0].letter
+                Axis.Col -> if (forward) grid.cells[size - 1][dragIndex].letter else grid.cells[0][dragIndex].letter
+            }
+            val ghostBaseX = when (ghostAxis) {
+                Axis.Row -> if (forward) -cellSizePx else size * cellSizePx
+                Axis.Col -> dragIndex * cellSizePx
+            }
+            val ghostBaseY = when (ghostAxis) {
+                Axis.Row -> dragIndex * cellSizePx
+                Axis.Col -> if (forward) -cellSizePx else size * cellSizePx
+            }
+            val ghostX = ghostBaseX + if (ghostAxis == Axis.Row) dragOffsetPx else 0f
+            val ghostY = ghostBaseY + if (ghostAxis == Axis.Col) dragOffsetPx else 0f
+            val ghostAlpha = (abs(dragOffsetPx) / cellSizePx).coerceIn(0f, 1f)
+            val ghostTileShape = RoundedCornerShape(TileCornerRadius)
+
+            Box(
+                modifier = Modifier
+                    .size(CELL_SIZE)
+                    .graphicsLayer {
+                        translationX = ghostX
+                        translationY = ghostY
+                        alpha = ghostAlpha
+                    }
+                    .background(if (wouldWin) SageGreen else LavenderTileTint, ghostTileShape)
+                    .border(1.dp, DustyLavender, ghostTileShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = ghostLetter.toString(), style = tileLetterStyle(), color = TextPrimary)
             }
         }
     }

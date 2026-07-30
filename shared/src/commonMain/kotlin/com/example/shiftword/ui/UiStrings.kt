@@ -40,6 +40,10 @@ data class UiStrings(
     val languageLabel: String,
     val languageTurkish: String,
     val languageEnglish: String,
+    // Feature 1B (GAME_DESIGN.md): opt-in, off-by-default drag-time win highlight toggle label.
+    // Deliberately not reusing "İpucu"/"Hint" -- that phrase now also names the hint-credit
+    // economy (Feature 3) and reusing it here would blur two unrelated assists in Settings.
+    val winHighlightLabel: String,
 )
 
 val TurkishStrings = UiStrings(
@@ -74,6 +78,7 @@ val TurkishStrings = UiStrings(
     languageLabel = "Dil",
     languageTurkish = "Türkçe",
     languageEnglish = "İngilizce",
+    winHighlightLabel = "Kazanan Hamle Vurgusu",
 )
 
 val EnglishStrings = UiStrings(
@@ -108,6 +113,7 @@ val EnglishStrings = UiStrings(
     languageLabel = "Language",
     languageTurkish = "Turkish",
     languageEnglish = "English",
+    winHighlightLabel = "Winning Move Highlight",
 )
 
 fun stringsForLanguage(code: String): UiStrings = if (code == "en") EnglishStrings else TurkishStrings

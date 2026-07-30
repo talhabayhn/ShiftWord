@@ -117,6 +117,7 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
             var currentLevel by remember { mutableStateOf(generateRandomLevel(languageCode, dictionaryRepository)) }
             var attempt by remember { mutableIntStateOf(0) }
             val soundEnabled = remember { settingsRepository.isSoundEnabled() }
+            val winHighlightEnabled = remember { settingsRepository.isWinHighlightEnabled() }
             val fillerPool = remember(languageCode) { LanguageProfiles.forCode(languageCode).fillerPool }
 
             val viewModel = remember(currentLevel, attempt) {
@@ -158,11 +159,13 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
                     attempt++
                 },
                 strings = stringsForLanguage(languageCode),
+                winHighlightEnabled = winHighlightEnabled,
             )
         }
 
         composable(Routes.SETTINGS) {
             var soundEnabled by remember { mutableStateOf(settingsRepository.isSoundEnabled()) }
+            var winHighlightEnabled by remember { mutableStateOf(settingsRepository.isWinHighlightEnabled()) }
             SettingsScreen(
                 soundEnabled = soundEnabled,
                 onSoundEnabledChange = { enabled ->
@@ -176,6 +179,11 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
                     settingsRepository.setLanguage(code)
                 },
                 strings = stringsForLanguage(languageCode),
+                winHighlightEnabled = winHighlightEnabled,
+                onWinHighlightEnabledChange = { enabled ->
+                    winHighlightEnabled = enabled
+                    settingsRepository.setWinHighlightEnabled(enabled)
+                },
             )
         }
     }

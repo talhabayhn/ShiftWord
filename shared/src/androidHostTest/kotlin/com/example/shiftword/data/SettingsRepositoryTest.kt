@@ -39,6 +39,27 @@ class SettingsRepositoryTest {
     fun defaultsAreSoundOnAndTurkishBeforeAnythingIsEverSet() {
         assertTrue(repository.isSoundEnabled())
         assertEquals(Turkish.code, repository.language())
+        assertFalse(repository.isWinHighlightEnabled(), "win highlight is a real difficulty lever -- must default off")
+    }
+
+    @Test
+    fun settingWinHighlightEnabledDoesNotClobberSoundOrLanguage() {
+        repository.setSoundEnabled(false)
+        repository.setLanguage(English.code)
+        repository.setWinHighlightEnabled(true)
+
+        assertTrue(repository.isWinHighlightEnabled())
+        assertFalse(repository.isSoundEnabled(), "toggling win highlight must not reset sound back to its column default")
+        assertEquals(English.code, repository.language(), "toggling win highlight must not reset language back to its column default")
+    }
+
+    @Test
+    fun settingSoundOrLanguageDoesNotClobberAPreviouslySetWinHighlight() {
+        repository.setWinHighlightEnabled(true)
+        repository.setSoundEnabled(false)
+        repository.setLanguage(English.code)
+
+        assertTrue(repository.isWinHighlightEnabled(), "toggling sound/language must not reset win highlight back to its column default")
     }
 
     @Test

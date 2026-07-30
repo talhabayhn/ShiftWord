@@ -43,6 +43,8 @@ fun GameScreen(
     onReplaySameLevel: () -> Unit = {},
     onNextLevel: () -> Unit = {},
     strings: UiStrings = TurkishStrings,
+    // Feature 1B (GAME_DESIGN.md): opt-in, off-by-default drag-time win highlight.
+    winHighlightEnabled: Boolean = false,
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -76,6 +78,8 @@ fun GameScreen(
             grid = state.grid,
             explodingCellIds = state.explodingCellIds,
             onMove = viewModel::onMove,
+            winHighlightEnabled = winHighlightEnabled,
+            targetWords = state.remainingTargets,
         )
 
         if (!state.isWon && !state.isLost) {
