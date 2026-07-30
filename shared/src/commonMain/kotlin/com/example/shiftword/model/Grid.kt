@@ -1,5 +1,19 @@
 package com.example.shiftword.model
 
+import androidx.compose.runtime.Immutable
+
+// Grid instances are never mutated in place (GridEngine/Cascade always build a new Grid via
+// Grid.fromRows/the constructor) -- @Immutable tells the Compose compiler it can trust that
+// contract even though `cells: List<List<Cell>>` is a plain (compiler-unstable-by-default)
+// interface type. Without this, any composable taking a Grid parameter (GridBoard) could never
+// be skipped -- every unrelated GameUiState field change (moveCount, hintMove, isWon, ...) read
+// via a single collectAsState() in GameScreen would force the whole grid to fully recompose,
+// not just redraw, on every state update.
+//
+// INVARIANT: Grid/Cell must never be mutated in place -- always construct new instances.
+// Marking this @Immutable tells Compose to trust that without checking; violating it causes
+// silent stale UI, not a crash or test failure.
+@Immutable
 class Grid(val size: Int, val cells: List<List<Cell>>) {
 
     fun rowsAsStrings(): List<String> =
