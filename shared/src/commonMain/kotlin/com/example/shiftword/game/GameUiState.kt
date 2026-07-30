@@ -21,6 +21,11 @@ data class GameUiState(
     // cleared automatically once a move is committed, since it applies to the grid at request
     // time only.
     val hintMove: Move? = null,
+    // Feature 3 (GAME_DESIGN.md §9c): a GLOBAL, not per-level, credit pool -- the caller supplies
+    // the current persisted value at construction and GameViewModel decrements it locally as
+    // hints are used; it does NOT reset itself on level transitions. Defaults to effectively
+    // unlimited so existing call sites/tests that don't care about the hint economy are unaffected.
+    val hintCreditsRemaining: Int = Int.MAX_VALUE,
 ) {
     val remainingTargets: Set<String> get() = targetWords.toSet() - foundWords
 }

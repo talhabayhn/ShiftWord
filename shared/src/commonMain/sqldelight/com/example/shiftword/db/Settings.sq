@@ -8,14 +8,18 @@ import kotlin.Boolean;
 -- together (rather than an SQL upsert) -- the default SqlDelight dialect here (sqlite_3_18)
 -- doesn't support `ON CONFLICT DO UPDATE`, and a plain `INSERT OR REPLACE` with only one column
 -- named would silently reset the other column back to its default every time.
+-- Feature 3: hint economy. hintCredits is a GLOBAL pool (not per-level, not per-language) --
+-- spending it in one level or starting a new one must not refill it; only a genuine cold start
+-- does (see SettingsRepository.refillHintCredits / AppNavHost).
 CREATE TABLE settings (
     id INTEGER NOT NULL PRIMARY KEY,
     soundEnabled INTEGER AS Boolean NOT NULL DEFAULT 1,
-    language TEXT NOT NULL DEFAULT 'tr'
+    language TEXT NOT NULL DEFAULT 'tr',
+    hintCredits INTEGER NOT NULL DEFAULT 3
 );
 
 selectSettings:
 SELECT * FROM settings WHERE id = 0;
 
 upsertSettings:
-INSERT OR REPLACE INTO settings(id, soundEnabled, language) VALUES (0, ?, ?);
+INSERT OR REPLACE INTO settings(id, soundEnabled, language, hintCredits) VALUES (0, ?, ?, ?);
