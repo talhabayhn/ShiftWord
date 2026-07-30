@@ -133,4 +133,30 @@ class SettingsRepositoryTest {
         assertTrue(repository.isSoundEnabled())
         assertEquals(English.code, repository.language())
     }
+
+    /**
+     * Real-device crash, reproduced then fixed: a device with the app already installed under
+     * the pre-`hintCredits` schema (v1: id, soundEnabled, language only) crashed on launch with
+     * "no such column: settings.hintCredits" -- AndroidSqliteDriver only calls Schema.create()
+     * on a brand-new DB file; an existing on-device DB is only ever brought up to date by
+     * Schema.migrate(), which does nothing unless a .sqm file exists to define it. This drives
+     * the actual migration path (not just a fresh Schema.create()), starting from a hand-built v1
+     * table matching what a real installed device's DB looks like, to prove 1.sqm's ALTER TABLE
+     * genuinely fixes existing installs rather than only working for brand-new ones (which every
+     * other test in this file, via WordShiftDatabase.Schema.create(), would never have caught).
+     */
+    @Test
+    fun migratingFromTheOriginalV1SchemaAddsHintCreditsWithoutLosingExistingData() {
+        val migrationDriver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        migrationDriver.execute(null, "CREATE TABLE settings (id INTEGER NOT NULL PRIMARY KEY, soundEnabled INTEGER NOT NULL DEFAULT 1, language TEXT NOT NULL DEFAULT 'tr')", 0)
+        migrationDriver.execute(null, "INSERT INTO settings(id, soundEnabled, language) VALUES (0, 0, 'en')", 0)
+
+        WordShiftDatabase.Schema.migrate(migrationDriver, 1, 2)
+
+        val migratedRepository = SettingsRepository(createDatabase(migrationDriver))
+        assertFalse(migratedRepository.isSoundEnabled(), "pre-existing soundEnabled value must survive the migration")
+        assertEquals(English.code, migratedRepository.language(), "pre-existing language value must survive the migration")
+        assertEquals(DEFAULT_HINT_CREDITS, migratedRepository.hintCreditsRemaining(), "the new column must land with its DEFAULT value on migrated rows, not crash or come back 0")
+        migrationDriver.close()
+    }
 }
