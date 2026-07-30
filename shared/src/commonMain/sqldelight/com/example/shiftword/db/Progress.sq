@@ -1,0 +1,19 @@
+CREATE TABLE progress (
+    levelId INTEGER NOT NULL PRIMARY KEY,
+    stars INTEGER NOT NULL,
+    bestMoves INTEGER NOT NULL,
+    completedAt INTEGER NOT NULL
+);
+
+upsertProgress:
+INSERT OR REPLACE INTO progress(levelId, stars, bestMoves, completedAt)
+VALUES (?, ?, ?, ?);
+
+selectByLevelId:
+SELECT * FROM progress WHERE levelId = ?;
+
+selectAll:
+SELECT * FROM progress;
+
+clearAll:
+DELETE FROM progress;

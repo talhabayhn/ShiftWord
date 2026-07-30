@@ -1,0 +1,34 @@
+import kotlin.Boolean;
+import kotlin.Char;
+import kotlin.String;
+import kotlin.collections.List;
+
+-- Deviation from ARCHITECTURE.md §9's sketch, flagged deliberately:
+-- 1. Columns are camelCase, not snake_case — SQLDelight generates Kotlin properties
+--    1:1 from column names (no auto camelCasing), so snake_case would produce
+--    clunky `target_words`-style Kotlin identifiers. Applies to Level.sq/Progress.sq.
+-- 2. Added `initialCells` (missing from the doc's sketch) — without the actual solved
+--    letter grid, a persisted level can't be reconstructed for replay; target words and
+--    a move limit alone aren't enough to redraw the starting grid.
+CREATE TABLE level (
+    id INTEGER NOT NULL PRIMARY KEY,
+    gridSize INTEGER NOT NULL,
+    initialCells TEXT AS List<List<Char>> NOT NULL,
+    targetWords TEXT AS List<String> NOT NULL,
+    moveLimit INTEGER NOT NULL,
+    minMovesToSolve INTEGER NOT NULL,
+    minMovesIsExact INTEGER AS Boolean NOT NULL
+);
+
+insertLevel:
+INSERT INTO level(id, gridSize, initialCells, targetWords, moveLimit, minMovesToSolve, minMovesIsExact)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+selectById:
+SELECT * FROM level WHERE id = ?;
+
+selectAll:
+SELECT * FROM level;
+
+clearAll:
+DELETE FROM level;
