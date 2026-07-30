@@ -1,0 +1,27 @@
+-- Phase 9: added `language` and moved the primary key to (word, language) -- a Turkish and
+-- an English dictionary now coexist in the same table, and without this a word that happens to
+-- be spelled identically in both (or a future third language) would collide on the old
+-- word-only PRIMARY KEY.
+CREATE TABLE word (
+    word TEXT NOT NULL,
+    length INTEGER NOT NULL,
+    language TEXT NOT NULL DEFAULT 'tr',
+    PRIMARY KEY (word, language)
+);
+
+CREATE INDEX word_length_idx ON word(length, language);
+
+insertWord:
+INSERT INTO word(word, length, language) VALUES (?, ?, ?);
+
+selectAll:
+SELECT * FROM word WHERE language = ?;
+
+selectByLength:
+SELECT * FROM word WHERE length = ? AND language = ?;
+
+countAll:
+SELECT COUNT(*) FROM word WHERE language = ?;
+
+clearAll:
+DELETE FROM word;

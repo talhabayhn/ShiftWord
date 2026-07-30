@@ -1,0 +1,21 @@
+import kotlin.Boolean;
+
+-- Single-row key-value settings table (id is always 0) — matches the minimal scope of Phase 7's
+-- settings screen (sound on/off only); a real multi-key settings store can replace this later
+-- if more preferences are added.
+--
+-- Phase 9 added `language`. SettingsRepository reads the current row and re-writes both columns
+-- together (rather than an SQL upsert) -- the default SqlDelight dialect here (sqlite_3_18)
+-- doesn't support `ON CONFLICT DO UPDATE`, and a plain `INSERT OR REPLACE` with only one column
+-- named would silently reset the other column back to its default every time.
+CREATE TABLE settings (
+    id INTEGER NOT NULL PRIMARY KEY,
+    soundEnabled INTEGER AS Boolean NOT NULL DEFAULT 1,
+    language TEXT NOT NULL DEFAULT 'tr'
+);
+
+selectSettings:
+SELECT * FROM settings WHERE id = 0;
+
+upsertSettings:
+INSERT OR REPLACE INTO settings(id, soundEnabled, language) VALUES (0, ?, ?);
