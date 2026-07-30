@@ -121,6 +121,11 @@ fun GameScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextPrimary,
                 )
+                Text(
+                    strings.scoreLabel(state.totalScore),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextPrimary,
+                )
                 Button(
                     onClick = onNextLevel,
                     shape = PillShape,

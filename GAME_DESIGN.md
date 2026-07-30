@@ -145,6 +145,27 @@ core loop feel is validated with real playtesting, not before.
 5. **Accessibility** — match/combo feedback must not rely on color alone
    (shape/brightness cues as well) for colorblind players.
 
+## 9b. Score System (added post-launch, independent of stars)
+
+A second, continuous scoring signal alongside (not replacing) the existing discrete star rating
+(`StarRating.kt`, unchanged). Where stars are based on total moves used vs. the level's move
+limit, score is based on the specific move count at which *each* target word individually
+completed:
+
+```
+pointsForWord(moveAtCompletion, moveLimit) = round(100 * (1 - moveAtCompletion / moveLimit)^2)
+```
+
+clamped so the ratio never leaves `[0, 1]` (a word found exactly at the move limit scores 0, not
+negative; a word found before move 0 — not reachable in practice — would score the full 100).
+The quadratic term rewards early completion more steeply than a linear formula would, so finding
+a word well ahead of the limit is worth disproportionately more than one found just barely in
+time. Total level score is the sum across all target words. This is order-independent by
+construction: the formula only depends on the move count a word completed at, never on which
+target it was Nth to complete, consistent with this project's existing order-invariance
+guarantees (`ALGORITHM_VALIDATION.md` R4 addendum, `CascadeIntersectionGuaranteeTest`). Shown on
+the Level Complete screen alongside the star rating and efficiency message, not replacing either.
+
 ## 9. Turkish-Language-Specific Design Notes
 
 - Dictionary must be curated (not raw TDK dump) to exclude words a casual

@@ -21,6 +21,10 @@ data class GameUiState(
     // cleared automatically once a move is committed, since it applies to the grid at request
     // time only.
     val hintMove: Move? = null,
+    // Feature 2 (GAME_DESIGN.md §9b): the move count each found word individually completed at,
+    // populated by GameViewModel.commit -- independent of StarRating, which is untouched by this.
+    val foundAtMoveCount: Map<String, Int> = emptyMap(),
 ) {
     val remainingTargets: Set<String> get() = targetWords.toSet() - foundWords
+    val totalScore: Int get() = scoreForLevel(foundAtMoveCount, moveLimit)
 }
