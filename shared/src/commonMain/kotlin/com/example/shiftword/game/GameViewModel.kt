@@ -237,16 +237,21 @@ class GameViewModel(
         // them strictly in submission order -- chain-step audio can never race or reorder.
         cascade.chainLog.forEach { step -> viewModelScope.launch(soundDispatcher) { soundEffects.playCascadeStep(step.step) } }
         val newlyFound = remaining - cascade.remainingTargets
-        commit(state, cascade.grid, state.foundWords + newlyFound)
+        commit(state, cascade.grid, state.foundWords + newlyFound, newlyFound)
     }
 
-    private suspend fun commit(previous: GameUiState, finalGrid: Grid, foundWords: Set<String>) {
+    private suspend fun commit(previous: GameUiState, finalGrid: Grid, foundWords: Set<String>, newlyFound: Set<String> = emptySet()) {
         val newMoveCount = previous.moveCount + 1
         val isWon = foundWords.containsAll(previous.targetWords)
         val isLost = !isWon && newMoveCount >= previous.moveLimit
+        // Feature 2 (GAME_DESIGN.md §9b): attribute every word found by this move -- including
+        // any found incidentally as part of the same cascade -- to this same move count, since
+        // that's the move count a player would actually see on screen when it happened.
+        val newFoundAtMoveCount = previous.foundAtMoveCount + newlyFound.associateWith { newMoveCount }
         _uiState.value = previous.copy(
             grid = finalGrid,
             foundWords = foundWords,
+            foundAtMoveCount = newFoundAtMoveCount,
             moveCount = newMoveCount,
             isWon = isWon,
             isLost = isLost,
