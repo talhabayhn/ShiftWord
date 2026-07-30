@@ -43,6 +43,14 @@ fun GameScreen(
     onReplaySameLevel: () -> Unit = {},
     onNextLevel: () -> Unit = {},
     strings: UiStrings = TurkishStrings,
+    // Feature 1B (GAME_DESIGN.md): opt-in, off-by-default drag-time win highlight.
+    winHighlightEnabled: Boolean = false,
+    // Feature 3 (GAME_DESIGN.md §9c): TODO(IAP) -- structural hook for a future "buy more hints"
+    // flow. Not invoked by anything in this pass: the Hint button below is fully disabled while
+    // hintCreditsRemaining is 0, so there's currently no tap for this to fire from. Kept as an
+    // explicit parameter so a later phase can wire a real onClick (e.g. on the exhausted message)
+    // without touching every other call site of GameScreen.
+    onHintExhausted: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -76,6 +84,8 @@ fun GameScreen(
             grid = state.grid,
             explodingCellIds = state.explodingCellIds,
             onMove = viewModel::onMove,
+            winHighlightEnabled = winHighlightEnabled,
+            targetWords = state.remainingTargets,
         )
 
         if (!state.isWon && !state.isLost) {
@@ -83,11 +93,15 @@ fun GameScreen(
                 onClick = viewModel::requestHint,
                 // Disabled mid-cascade: a hint computed against the pre-cascade grid wouldn't
                 // describe a move valid for whatever's about to be on screen once the explosion/
-                // refill resolves (audit finding 4a).
-                enabled = state.explodingCellIds.isEmpty(),
+                // refill resolves (audit finding 4a). Feature 3 (GAME_DESIGN.md §9c): also
+                // disabled once the global hint-credit pool is exhausted.
+                enabled = state.explodingCellIds.isEmpty() && state.hintCreditsRemaining > 0,
                 shape = PillShape,
                 colors = ButtonDefaults.buttonColors(containerColor = SoftCoral, contentColor = SurfaceWhite),
-            ) { Text(strings.hint) }
+            ) { Text(strings.hintWithCredits(state.hintCreditsRemaining)) }
+            if (state.hintCreditsRemaining <= 0) {
+                Text(strings.hintExhausted, style = MaterialTheme.typography.bodySmall, color = TextPrimary)
+            }
             state.hintMove?.let { move ->
                 Text(
                     strings.tryHint(move.axis, move.index, move.forward),
@@ -118,6 +132,11 @@ fun GameScreen(
                         optimalMessage = strings.optimalMoves,
                         usedMessage = strings.usedMoves,
                     ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextPrimary,
+                )
+                Text(
+                    strings.scoreLabel(state.totalScore),
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextPrimary,
                 )

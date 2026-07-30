@@ -145,6 +145,61 @@ core loop feel is validated with real playtesting, not before.
 5. **Accessibility** — match/combo feedback must not rely on color alone
    (shape/brightness cues as well) for colorblind players.
 
+## 9a. Drag-Time Assist Features (added post-launch)
+
+**Ghost preview — default-on, not a difficulty lever.** During a row/column drag, the letter
+that will wrap in from the opposite edge on release now fades into view early (alpha tied to
+drag progress over the first cell-width of travel, `GridBoard.kt`), instead of only appearing
+once the drag completes and the grid re-renders. This is deliberately always-on: it reveals no
+information the wrap-around mechanic doesn't already make computable by the player themself (the
+wrapping letter is always the one currently at the opposite end of the row/column being dragged)
+— it only removes an artificial "pop-in" lag, matching the graphicsLayer-based animation approach
+already established (`perf/graphicslayer-animation-jank`). Because only one shift is ever
+committed per gesture regardless of drag distance (`Move` carries no magnitude), only the single
+upcoming wrap letter is shown, not a simulation of further wraps beyond it.
+
+**Win highlight — opt-in, off by default.** A separate, explicit Settings toggle
+("Kazanan Hamle Vurgusu" / "Winning Move Highlight") that, while dragging, highlights the
+row/column being dragged (a color shift, `LavenderTileTint`/`DustyLavender` -> `SageGreen`) if
+releasing right now would complete a target word. Unlike the ghost preview, this genuinely
+reduces the game's core spatial-reasoning challenge — it tells the player "stop here" instead of
+requiring them to read the letters and judge it themselves — so it is treated as a real
+accessibility/assist option, not a default. Persisted via `SettingsRepository`
+(`winHighlightEnabled`, defaults to `false`), same read-then-`INSERT OR REPLACE` pattern as
+sound/language.
+
+## 9b. Score System (added post-launch, independent of stars)
+
+A second, continuous scoring signal alongside (not replacing) the existing discrete star rating
+(`StarRating.kt`, unchanged). Where stars are based on total moves used vs. the level's move
+limit, score is based on the specific move count at which *each* target word individually
+completed:
+
+```
+pointsForWord(moveAtCompletion, moveLimit) = round(100 * (1 - moveAtCompletion / moveLimit)^2)
+```
+
+clamped so the ratio never leaves `[0, 1]` (a word found exactly at the move limit scores 0, not
+negative; a word found before move 0 — not reachable in practice — would score the full 100).
+The quadratic term rewards early completion more steeply than a linear formula would, so finding
+a word well ahead of the limit is worth disproportionately more than one found just barely in
+time. Total level score is the sum across all target words. This is order-independent by
+construction: the formula only depends on the move count a word completed at, never on which
+target it was Nth to complete, consistent with this project's existing order-invariance
+guarantees (`ALGORITHM_VALIDATION.md` R4 addendum, `CascadeIntersectionGuaranteeTest`). Shown on
+the Level Complete screen alongside the star rating and efficiency message, not replacing either.
+
+## 9c. Hint Economy (added post-launch)
+
+Hints are no longer unlimited. A global (not per-level, not per-language) credit pool, starting
+at 3, persisted via `SettingsRepository` (`hintCredits`). Spending credits in one level or
+starting a new level does not refill them — only a genuine cold start (app process restart) does,
+wired once at `AppNavHost`'s initial composition, deliberately not on every menu visit or level
+transition. This is an intentionally blunt first pass: no in-app-purchase path to buy more
+credits exists yet (`GameScreen`'s exhausted-state has a stubbed `onHintExhausted` hook and a TODO
+for that future phase), and the reset trigger is process-restart rather than a real daily/timed
+refill, both left as deliberately deferred scope rather than half-built.
+
 ## 9. Turkish-Language-Specific Design Notes
 
 - Dictionary must be curated (not raw TDK dump) to exclude words a casual

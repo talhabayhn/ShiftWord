@@ -33,6 +33,9 @@ fun SettingsScreen(
     languageCode: String = "tr",
     onLanguageCodeChange: (String) -> Unit = {},
     strings: UiStrings = TurkishStrings,
+    // Feature 1B: opt-in, off-by-default drag-time win highlight.
+    winHighlightEnabled: Boolean = false,
+    onWinHighlightEnabledChange: (Boolean) -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -78,6 +81,19 @@ fun SettingsScreen(
                 label = strings.languageEnglish,
                 selected = languageCode == "en",
                 onClick = { onLanguageCodeChange("en") },
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(strings.winHighlightLabel, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+            Switch(
+                checked = winHighlightEnabled,
+                onCheckedChange = onWinHighlightEnabledChange,
+                colors = SwitchDefaults.colors(checkedThumbColor = SurfaceWhite, checkedTrackColor = DustyLavender),
             )
         }
     }

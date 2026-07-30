@@ -77,6 +77,13 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
     val progressRepository = remember { ProgressRepository(database) }
     val settingsRepository = remember { SettingsRepository(database) }
 
+    // Feature 3 (GAME_DESIGN.md §9c): hint credits refill ONLY on a genuine cold start. This
+    // remember block runs exactly once for AppNavHost's own composition lifetime (per this
+    // composable's existing doc comment, that's effectively once per app process) -- never again
+    // on menu/settings navigation or level transitions, which are all nested composables entered
+    // and re-entered many times within this same AppNavHost instance without this line re-running.
+    remember { settingsRepository.refillHintCredits() }
+
     // Read once per app-shell instantiation; the Settings screen mutates this same instance
     // going forward, so every route re-composed after a language change sees the new value.
     var languageCode by remember { mutableStateOf(settingsRepository.language()) }
@@ -117,6 +124,7 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
             var currentLevel by remember { mutableStateOf(generateRandomLevel(languageCode, dictionaryRepository)) }
             var attempt by remember { mutableIntStateOf(0) }
             val soundEnabled = remember { settingsRepository.isSoundEnabled() }
+            val winHighlightEnabled = remember { settingsRepository.isWinHighlightEnabled() }
             val fillerPool = remember(languageCode) { LanguageProfiles.forCode(languageCode).fillerPool }
 
             val viewModel = remember(currentLevel, attempt) {
@@ -124,6 +132,12 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
                     level = currentLevel,
                     fillerPool = fillerPool,
                     soundEffects = if (soundEnabled) platformSoundEffects() else NoSoundEffects,
+                    // Feature 3: read fresh on every new GameViewModel (new level or replay
+                    // attempt) -- this is what makes the pool GLOBAL rather than per-level: it
+                    // reflects whatever was last persisted (including credits spent earlier this
+                    // session), never resets just because a new level started.
+                    initialHintCredits = settingsRepository.hintCreditsRemaining(),
+                    onHintUsed = { settingsRepository.consumeHintCredit() },
                     onLevelCompleted = { stars, movesUsed ->
                         levelRepository.insert(currentLevel)
                         progressRepository.recordCompletion(
@@ -158,11 +172,13 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
                     attempt++
                 },
                 strings = stringsForLanguage(languageCode),
+                winHighlightEnabled = winHighlightEnabled,
             )
         }
 
         composable(Routes.SETTINGS) {
             var soundEnabled by remember { mutableStateOf(settingsRepository.isSoundEnabled()) }
+            var winHighlightEnabled by remember { mutableStateOf(settingsRepository.isWinHighlightEnabled()) }
             SettingsScreen(
                 soundEnabled = soundEnabled,
                 onSoundEnabledChange = { enabled ->
@@ -176,6 +192,11 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
                     settingsRepository.setLanguage(code)
                 },
                 strings = stringsForLanguage(languageCode),
+                winHighlightEnabled = winHighlightEnabled,
+                onWinHighlightEnabledChange = { enabled ->
+                    winHighlightEnabled = enabled
+                    settingsRepository.setWinHighlightEnabled(enabled)
+                },
             )
         }
     }

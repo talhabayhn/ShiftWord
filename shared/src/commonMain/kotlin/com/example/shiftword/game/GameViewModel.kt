@@ -65,6 +65,15 @@ class GameViewModel(
     // GameViewModel instance, not one-per-instance -- see its doc comment for why), injectable so
     // tests can pass the same TestDispatcher used for Main for deterministic, ordered assertions.
     private val soundDispatcher: CoroutineDispatcher = defaultSoundDispatcher,
+    // Feature 3 (GAME_DESIGN.md §9c): the GLOBAL hint-credit pool's current value, read by the
+    // caller from SettingsRepository at construction -- NOT reset per level (see hintCreditsRemaining
+    // field doc comment on GameUiState). Defaults to effectively unlimited, matching hintCreditsRemaining's
+    // own default, so existing call sites/tests are unaffected.
+    private val initialHintCredits: Int = Int.MAX_VALUE,
+    // Fired once a hint request is actually accepted (not blocked by isBusy/no-credits) --
+    // persistence is intentionally not a direct GameViewModel dependency, same reasoning as
+    // onLevelCompleted above. Caller (AppNavHost) wires this to SettingsRepository.consumeHintCredit().
+    private val onHintUsed: () -> Unit = {},
 ) : ViewModel() {
 
     private var nextCellId = 0L
@@ -85,6 +94,7 @@ class GameViewModel(
             minMovesIsExact = level.minMovesIsExact,
             isWon = false,
             isLost = false,
+            hintCreditsRemaining = initialHintCredits,
         ),
     )
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
@@ -174,7 +184,14 @@ class GameViewModel(
     fun requestHint() {
         val state = _uiState.value
         if (isBusy(state)) return
+        // Feature 3: gate on the GLOBAL credit pool. Consumed immediately on acceptance (not
+        // conditioned on the async BFS result below, and not undone if that result later turns
+        // out stale and gets dropped) -- the player spent a hint *attempt*, which is the
+        // consequential/felt action, not an implementation detail of staleness plumbing.
+        if (state.hintCreditsRemaining <= 0) return
         hintJob?.cancel()
+        _uiState.value = state.copy(hintCreditsRemaining = state.hintCreditsRemaining - 1)
+        viewModelScope.launch(hintDispatcher) { onHintUsed() }
         hintJob = viewModelScope.launch {
             val result = withContext(hintDispatcher) {
                 val scope = this
@@ -237,16 +254,21 @@ class GameViewModel(
         // them strictly in submission order -- chain-step audio can never race or reorder.
         cascade.chainLog.forEach { step -> viewModelScope.launch(soundDispatcher) { soundEffects.playCascadeStep(step.step) } }
         val newlyFound = remaining - cascade.remainingTargets
-        commit(state, cascade.grid, state.foundWords + newlyFound)
+        commit(state, cascade.grid, state.foundWords + newlyFound, newlyFound)
     }
 
-    private suspend fun commit(previous: GameUiState, finalGrid: Grid, foundWords: Set<String>) {
+    private suspend fun commit(previous: GameUiState, finalGrid: Grid, foundWords: Set<String>, newlyFound: Set<String> = emptySet()) {
         val newMoveCount = previous.moveCount + 1
         val isWon = foundWords.containsAll(previous.targetWords)
         val isLost = !isWon && newMoveCount >= previous.moveLimit
+        // Feature 2 (GAME_DESIGN.md §9b): attribute every word found by this move -- including
+        // any found incidentally as part of the same cascade -- to this same move count, since
+        // that's the move count a player would actually see on screen when it happened.
+        val newFoundAtMoveCount = previous.foundAtMoveCount + newlyFound.associateWith { newMoveCount }
         _uiState.value = previous.copy(
             grid = finalGrid,
             foundWords = foundWords,
+            foundAtMoveCount = newFoundAtMoveCount,
             moveCount = newMoveCount,
             isWon = isWon,
             isLost = isLost,
