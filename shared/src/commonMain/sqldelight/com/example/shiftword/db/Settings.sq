@@ -8,17 +8,28 @@ import kotlin.Boolean;
 -- together (rather than an SQL upsert) -- the default SqlDelight dialect here (sqlite_3_18)
 -- doesn't support `ON CONFLICT DO UPDATE`, and a plain `INSERT OR REPLACE` with only one column
 -- named would silently reset the other column back to its default every time.
+--
 -- Feature 1B: opt-in, off-by-default drag-time win highlight (GAME_DESIGN.md) -- a real
 -- difficulty lever, not cosmetic, so it must default to 0 like every other assist would.
+--
+-- Feature 3: hint economy. hintCredits is a GLOBAL pool (not per-level, not per-language) --
+-- spending it in one level or starting a new one must not refill it; only a genuine cold start
+-- does (see SettingsRepository.refillHintCredits / AppNavHost).
+--
+-- NOTE: winHighlightEnabled and hintCredits both shipped without a matching migration in their
+-- original commits, crashing any already-installed device ("no such column") -- see 1.sqm, which
+-- retroactively fixes this for existing installs. Any FUTURE column added here must ship its own
+-- migration file in the same commit, not rely on this note as a substitute.
 CREATE TABLE settings (
     id INTEGER NOT NULL PRIMARY KEY,
     soundEnabled INTEGER AS Boolean NOT NULL DEFAULT 1,
     language TEXT NOT NULL DEFAULT 'tr',
-    winHighlightEnabled INTEGER AS Boolean NOT NULL DEFAULT 0
+    winHighlightEnabled INTEGER AS Boolean NOT NULL DEFAULT 0,
+    hintCredits INTEGER NOT NULL DEFAULT 3
 );
 
 selectSettings:
 SELECT * FROM settings WHERE id = 0;
 
 upsertSettings:
-INSERT OR REPLACE INTO settings(id, soundEnabled, language, winHighlightEnabled) VALUES (0, ?, ?, ?);
+INSERT OR REPLACE INTO settings(id, soundEnabled, language, winHighlightEnabled, hintCredits) VALUES (0, ?, ?, ?, ?);

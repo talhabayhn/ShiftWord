@@ -189,6 +189,17 @@ target it was Nth to complete, consistent with this project's existing order-inv
 guarantees (`ALGORITHM_VALIDATION.md` R4 addendum, `CascadeIntersectionGuaranteeTest`). Shown on
 the Level Complete screen alongside the star rating and efficiency message, not replacing either.
 
+## 9c. Hint Economy (added post-launch)
+
+Hints are no longer unlimited. A global (not per-level, not per-language) credit pool, starting
+at 3, persisted via `SettingsRepository` (`hintCredits`). Spending credits in one level or
+starting a new level does not refill them — only a genuine cold start (app process restart) does,
+wired once at `AppNavHost`'s initial composition, deliberately not on every menu visit or level
+transition. This is an intentionally blunt first pass: no in-app-purchase path to buy more
+credits exists yet (`GameScreen`'s exhausted-state has a stubbed `onHintExhausted` hook and a TODO
+for that future phase), and the reset trigger is process-restart rather than a real daily/timed
+refill, both left as deliberately deferred scope rather than half-built.
+
 ## 9. Turkish-Language-Specific Design Notes
 
 - Dictionary must be curated (not raw TDK dump) to exclude words a casual

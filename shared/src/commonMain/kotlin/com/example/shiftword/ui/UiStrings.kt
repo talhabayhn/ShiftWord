@@ -21,6 +21,11 @@ data class UiStrings(
     val backToMenu: String,
     val moves: (used: Int, limit: Int) -> String,
     val hint: String,
+    // Feature 3 (GAME_DESIGN.md §9c): hint-credit economy. hintWithCredits labels the button
+    // itself (e.g. "İpucu (2)"); hintExhausted is the short message shown once the global pool
+    // hits zero and the button becomes disabled.
+    val hintWithCredits: (creditsRemaining: Int) -> String,
+    val hintExhausted: String,
     // Priority-2 UX finding: raw 0-indexed technical phrasing ("Satır 0 geri" / "Row 0 backward")
     // reads like debug output, not a suggestion a casual player intuitively parses. Ordinal
     // (1-indexed) position + a plain directional word (left/right/up/down, not the internal
@@ -59,6 +64,8 @@ val TurkishStrings = UiStrings(
     backToMenu = "← Menü",
     moves = { used, limit -> "Hamle: $used/$limit" },
     hint = "İpucu",
+    hintWithCredits = { creditsRemaining -> "İpucu ($creditsRemaining)" },
+    hintExhausted = "İpucu hakkın kalmadı",
     tryHint = { axis, index, forward ->
         val axisWord = if (axis == Axis.Row) "satır" else "sütun"
         val direction = when (axis) {
@@ -95,6 +102,8 @@ val EnglishStrings = UiStrings(
     backToMenu = "← Menu",
     moves = { used, limit -> "Moves: $used/$limit" },
     hint = "Hint",
+    hintWithCredits = { creditsRemaining -> "Hint ($creditsRemaining)" },
+    hintExhausted = "No hints left",
     tryHint = { axis, index, forward ->
         val axisWord = if (axis == Axis.Row) "Row" else "Col"
         val direction = when (axis) {
