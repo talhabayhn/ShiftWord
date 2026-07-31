@@ -8,27 +8,44 @@ import kotlin.collections.List;
 --    1:1 from column names (no auto camelCasing), so snake_case would produce
 --    clunky `target_words`-style Kotlin identifiers. Applies to Level.sq/Progress.sq.
 -- 2. Added `initialCells` (missing from the doc's sketch) — without the actual solved
---    letter grid, a persisted level can't be reconstructed for replay; target words and
+--    letter grid, a persisted level can't be reconstructed for replay — target words and
 --    a move limit alone aren't enough to redraw the starting grid.
+-- 3. Level Select feature (see GAME_DESIGN.md): added `language`, and the primary key became
+--    (id, language) instead of `id` alone -- levels are now a persisted, per-language pack
+--    (numbered 1..50) rather than ad-hoc procedural generation with random global IDs, so a
+--    Turkish level 7 and an English level 7 must coexist as distinct rows. See `2.sqm` for the
+--    migration and its residual-collision-risk note re: pre-existing ad-hoc data.
 CREATE TABLE level (
-    id INTEGER NOT NULL PRIMARY KEY,
+    id INTEGER NOT NULL,
+    language TEXT NOT NULL DEFAULT 'tr',
     gridSize INTEGER NOT NULL,
     initialCells TEXT AS List<List<Char>> NOT NULL,
     targetWords TEXT AS List<String> NOT NULL,
     moveLimit INTEGER NOT NULL,
     minMovesToSolve INTEGER NOT NULL,
-    minMovesIsExact INTEGER AS Boolean NOT NULL
+    minMovesIsExact INTEGER AS Boolean NOT NULL,
+    PRIMARY KEY (id, language)
 );
 
+-- OR REPLACE deliberately: this is now only ever called by LevelRepository.seedPackIfNeeded's
+-- one-time pack seeding (not per-completion like before Level Select), which must be safe to
+-- re-run/idempotent, and must let a real pack level win over a theoretical stray legacy row with
+-- the same (id, language) -- see 2.sqm's doc comment.
 insertLevel:
-INSERT INTO level(id, gridSize, initialCells, targetWords, moveLimit, minMovesToSolve, minMovesIsExact)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO level(id, language, gridSize, initialCells, targetWords, moveLimit, minMovesToSolve, minMovesIsExact)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 selectById:
-SELECT * FROM level WHERE id = ?;
+SELECT * FROM level WHERE id = ? AND language = ?;
+
+selectAllForLanguage:
+SELECT * FROM level WHERE language = ? ORDER BY id;
 
 selectAll:
 SELECT * FROM level;
+
+countForLanguage:
+SELECT COUNT(*) FROM level WHERE language = ?;
 
 clearAll:
 DELETE FROM level;

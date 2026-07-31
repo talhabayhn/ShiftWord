@@ -191,6 +191,21 @@ fun bfsMinMovesToAnyTarget(
 ): SolverResult?
 ```
 
+**Hint presentation (added post-launch, `GAME_DESIGN.md` §9d):** the BFS result is no longer shown
+as text alone. `GridBoard` accepts a `hintMove: Move?` and, on request, plays the suggested
+row/column as a brief automatic nudge-and-return — the same `graphicsLayer`-driven `Animatable`
+real finger drags use (§9a's ghost-preview/highlight visuals included), triggered programmatically
+rather than by touch input. The text hint (`strings.tryHint`) remains alongside it as a
+supplementary/accessibility fallback. `GameViewModel.requestHint` clears `hintMove` to `null`
+synchronously on every accepted request (before the async BFS result lands) specifically so
+`GridBoard`'s animation — keyed on `hintMove`'s null→non-null transition — replays even when two
+consecutive requests resolve to the identical `Move`, which plain value-equality would not
+retrigger. If a real drag starts while the hint animation is still playing, it cancels the hint's
+animation coroutine outright (not merely rendering over it) and takes over the row/column
+cleanly — the same category of concurrent-input hazard as hint-staleness and cascade overlap
+(`GameViewModel.isBusy`'s doc comment), and covered the same way: an explicit regression test
+(`GridBoardHintDragInterruptionTest`), not just reasoning about the code.
+
 ## 7a. Design Tokens (extracted from final mockups)
 
 Exact values measured by pixel-sampling and shape-boundary detection
@@ -239,9 +254,28 @@ under `design/fonts_license/`.
 Compose, not a third-party library. Same sourcing pattern already
 established for `androidx.lifecycle-viewmodel-compose` since Phase 4.
 
-**Flow:** splash → menu → gameplay (gameplay pops back to menu via a real
-"← Menü" button); menu ↔ settings. Splash auto-navigates after 1.2s and is
-popped inclusive, so back-navigation can never return to it.
+**Flow:** splash → menu → level select → gameplay (gameplay's "← Seviyeler"
+button pops back to level select, not menu — see below); menu ↔ settings.
+Splash auto-navigates after 1.2s and is popped inclusive, so
+back-navigation can never return to it.
+
+**Level Select (added post-launch, `GAME_DESIGN.md` §9e):** Main Menu's
+"Oyna" now navigates to a level-select route instead of straight into
+gameplay. Selecting a level number sets an `AppNavHost`-scoped
+`selectedLevelNumber` (read once when the gameplay composable next enters
+composition) and navigates to `GAMEPLAY` — the same "share state via a
+`remember` at this level, not nav-route arguments" pattern this app's nav
+graph has already used for `languageCode`, since adding one for the single
+Int wasn't worth it. "Sonraki Seviye" now advances to the pack's next level
+*number* (looked up by id, not regenerated); at the pack's last level it
+instead pops back to Level Select, since there's nothing further to
+advance to. `GameScreen`'s own back button (`onBackToMenu`, name kept for
+git-blame continuity) now therefore lands on Level Select via a plain
+`popBackStack()`, not necessarily Main Menu — its label was updated to
+"← Seviyeler"/"← Levels" (`backToLevelSelect`) to match, since reusing
+`backToMenu`'s "← Menü" text there would now be inaccurate.
+`LevelSelectScreen`'s own back button still correctly uses `backToMenu`
+and does go to Main Menu.
 
 **Level Complete stays an inline `GameScreen` state block, not a separate
 route.** Reasoning: its content is 100% derived from the same
@@ -330,6 +364,32 @@ Dictionary is seeded from a bundled asset on first launch. **Every word must
 pass the validation pipeline described in `ALGORITHM_VALIDATION.md` (Risk
 R1) before being inserted** — this should be enforced at the import script
 level, not trusted to be already-clean source data.
+
+> **Level Select feature (added post-launch, `GAME_DESIGN.md` §9e):** both
+> `level` and `progress` gained a `language TEXT NOT NULL DEFAULT 'tr'`
+> column, and their primary keys became composite — `(id, language)` and
+> `(levelId, language)` respectively — since levels are now a persisted,
+> per-language pack (50 levels, numbered 1..50) rather than ad-hoc
+> procedural generation with random global IDs, so a Turkish level 7 and
+> an English level 7 must coexist as distinct rows. `level`'s `insertLevel`
+> now uses `INSERT OR REPLACE` (previously a plain `INSERT`), since it's
+> only ever called by `LevelRepository.seedPackIfNeeded`'s one-time,
+> idempotent pack seeding now, not per-completion. Migrated via `2.sqm`:
+> existing rows (which predate the pack model entirely, e.g. random ad-hoc
+> IDs like `2034700723` observed in development) are tagged `'tr'` on
+> migrate rather than discarded — see that file's doc comment for the full
+> data-handling reasoning, including the precise (deterministic-within-the-
+> pack, but not zero against pre-existing ad-hoc data) collision guarantee.
+> `ProgressRepository.totalWordsFound()`/`currentDayStreak()` remain
+> global/unpartitioned by language, unaffected by this change — see
+> `GAME_DESIGN.md` §9e for why that's a deliberately separate decision from
+> the per-level scoping above.
+>
+> **Found on-device:** kept legacy rows initially broke Level Select's
+> unlock calculation (a legacy row's huge `levelId` became the "furthest
+> reached" level and unlocked the entire pack) — fixed and verified
+> against multiple legacy rows on real hardware; see `GAME_DESIGN.md` §9e's
+> addendum for the full writeup.
 
 ## 10. Testing Strategy
 

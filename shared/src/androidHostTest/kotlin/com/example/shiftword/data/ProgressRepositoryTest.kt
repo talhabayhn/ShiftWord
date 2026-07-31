@@ -2,7 +2,9 @@ package com.example.shiftword.data
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.example.shiftword.db.WordShiftDatabase
+import com.example.shiftword.model.English
 import com.example.shiftword.model.Level
+import com.example.shiftword.model.Turkish
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -12,6 +14,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class ProgressRepositoryTest {
 
@@ -24,7 +27,7 @@ class ProgressRepositoryTest {
     private fun epochMillisOn(date: LocalDate): Long =
         date.atStartOfDayIn(TimeZone.currentSystemDefault()).toEpochMilliseconds()
 
-    private fun levelWithWords(id: Int, words: List<String>) = Level(
+    private fun levelWithWords(id: Int, words: List<String>, language: String = Turkish.code) = Level(
         id = id,
         gridSize = words.first().length,
         initialCells = List(words.first().length) { List(words.first().length) { 'P' } },
@@ -32,6 +35,7 @@ class ProgressRepositoryTest {
         moveLimit = 5,
         minMovesToSolve = 2,
         minMovesIsExact = true,
+        language = language,
     )
 
     @BeforeTest
@@ -110,5 +114,40 @@ class ProgressRepositoryTest {
         progressRepository.recordCompletion(2, 3, 2, epochMillisOn(today.minus(DatePeriod(days = 2))))
 
         assertEquals(1, progressRepository.currentDayStreak(today))
+    }
+
+    /**
+     * Level Select feature (GAME_DESIGN.md): per-level progress (star rating, which level a
+     * player has reached) must be scoped by (levelId, language) -- a Turkish level 1 and an
+     * English level 1 are different puzzles that happen to share a number, and completing one
+     * must not appear as progress on the other.
+     */
+    @Test
+    fun perLevelProgressIsScopedByLanguageNotJustLevelNumber() {
+        levelRepository.insert(levelWithWords(1, listOf("KALE"), Turkish.code))
+        levelRepository.insert(levelWithWords(1, listOf("LAKE"), English.code))
+
+        progressRepository.recordCompletion(1, stars = 3, bestMoves = 2, completedAtEpochMillis = epochMillisOn(today), language = Turkish.code)
+
+        val turkishProgress = progressRepository.byLevelForLanguage(Turkish.code)
+        val englishProgress = progressRepository.byLevelForLanguage(English.code)
+
+        assertEquals(3, turkishProgress[1]?.stars)
+        assertNull(englishProgress[1], "completing Turkish level 1 must not appear as English level 1's progress")
+    }
+
+    /**
+     * The earlier "aggregate stats are global, not per-language" decision (words-found/day-streak)
+     * is a SEPARATE, unaffected decision from per-level language-scoping above -- this confirms
+     * totalWordsFound still sums across both languages' completions rather than only one.
+     */
+    @Test
+    fun totalWordsFoundStillAggregatesAcrossBothLanguages() {
+        levelRepository.insert(levelWithWords(1, listOf("KALE", "UMUT"), Turkish.code))
+        levelRepository.insert(levelWithWords(1, listOf("LAKE"), English.code))
+        progressRepository.recordCompletion(1, stars = 3, bestMoves = 2, completedAtEpochMillis = epochMillisOn(today), language = Turkish.code)
+        progressRepository.recordCompletion(1, stars = 2, bestMoves = 4, completedAtEpochMillis = epochMillisOn(today), language = English.code)
+
+        assertEquals(3L, progressRepository.totalWordsFound())
     }
 }

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Required by Robolectric-backed Compose UI tests (GridBoardSessionKeyTest): runComposeUiTest's
+  Android implementation launches a real androidx.activity.ComponentActivity via ActivityScenario,
+  which needs a LAUNCHER-declared activity in the test manifest to resolve. See Robolectric PR 4736.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

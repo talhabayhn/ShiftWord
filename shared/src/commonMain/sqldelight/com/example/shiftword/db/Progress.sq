@@ -1,16 +1,27 @@
+-- Level Select feature (see GAME_DESIGN.md): added `language`, and the primary key became
+-- (levelId, language) instead of `levelId` alone -- see Level.sq's matching note and 2.sqm for
+-- the migration. selectAll (used by ProgressRepository's totalWordsFound/currentDayStreak
+-- GLOBAL aggregate stats) deliberately stays unfiltered by language -- that decision is
+-- unaffected by this change, per GAME_DESIGN.md: those aggregates sum across both languages,
+-- only per-level progress (star rating, furthest level reached) is scoped by language.
 CREATE TABLE progress (
-    levelId INTEGER NOT NULL PRIMARY KEY,
+    levelId INTEGER NOT NULL,
+    language TEXT NOT NULL DEFAULT 'tr',
     stars INTEGER NOT NULL,
     bestMoves INTEGER NOT NULL,
-    completedAt INTEGER NOT NULL
+    completedAt INTEGER NOT NULL,
+    PRIMARY KEY (levelId, language)
 );
 
 upsertProgress:
-INSERT OR REPLACE INTO progress(levelId, stars, bestMoves, completedAt)
-VALUES (?, ?, ?, ?);
+INSERT OR REPLACE INTO progress(levelId, language, stars, bestMoves, completedAt)
+VALUES (?, ?, ?, ?, ?);
 
 selectByLevelId:
-SELECT * FROM progress WHERE levelId = ?;
+SELECT * FROM progress WHERE levelId = ? AND language = ?;
+
+selectAllForLanguage:
+SELECT * FROM progress WHERE language = ?;
 
 selectAll:
 SELECT * FROM progress;

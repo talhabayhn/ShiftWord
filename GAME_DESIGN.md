@@ -145,60 +145,97 @@ core loop feel is validated with real playtesting, not before.
 5. **Accessibility** — match/combo feedback must not rely on color alone
    (shape/brightness cues as well) for colorblind players.
 
-## 9a. Drag-Time Assist Features (added post-launch)
+## 9d. Hint Presentation: Animation, Not Text (added post-launch)
 
-**Ghost preview — default-on, not a difficulty lever.** During a row/column drag, the letter
-that will wrap in from the opposite edge on release now fades into view early (alpha tied to
-drag progress over the first cell-width of travel, `GridBoard.kt`), instead of only appearing
-once the drag completes and the grid re-renders. This is deliberately always-on: it reveals no
-information the wrap-around mechanic doesn't already make computable by the player themself (the
-wrapping letter is always the one currently at the opposite end of the row/column being dragged)
-— it only removes an artificial "pop-in" lag, matching the graphicsLayer-based animation approach
-already established (`perf/graphicslayer-animation-jank`). Because only one shift is ever
-committed per gesture regardless of drag distance (`Move` carries no magnitude), only the single
-upcoming wrap letter is shown, not a simulation of further wraps beyond it.
+Requesting a hint now *shows* the suggested move rather than only describing it. On acceptance,
+the suggested row/column briefly, automatically plays the same shift nudge a real finger drag
+would (`GridBoard.kt`'s `hintMove` parameter): it slides out toward the suggested direction using
+the identical `graphicsLayer`-based `Animatable` real drags use — same lavender/green highlight,
+same ghost wrap-tile preview (§9a) — then eases back to rest, without ever calling `onMove` or
+touching game state (move count, credits already decremented separately on request acceptance,
+grid). The existing text hint (`strings.tryHint`, e.g. "2. satır sola") is kept alongside it, not
+replaced — the animation is the primary way a player reads the suggestion now, the text remains a
+supplementary/accessibility fallback for anyone who prefers to read it.
 
-**Win highlight — opt-in, off by default.** A separate, explicit Settings toggle
-("Kazanan Hamle Vurgusu" / "Winning Move Highlight") that, while dragging, highlights the
-row/column being dragged (a color shift, `LavenderTileTint`/`DustyLavender` -> `SageGreen`) if
-releasing right now would complete a target word. Unlike the ghost preview, this genuinely
-reduces the game's core spatial-reasoning challenge — it tells the player "stop here" instead of
-requiring them to read the letters and judge it themselves — so it is treated as a real
-accessibility/assist option, not a default. Persisted via `SettingsRepository`
-(`winHighlightEnabled`, defaults to `false`), same read-then-`INSERT OR REPLACE` pattern as
-sound/language.
+Tapping Hint again always replays the animation, even when the newly-computed move happens to be
+identical to the previous one (same grid/targets → same BFS result): `GameViewModel.requestHint`
+clears `hintMove` to `null` synchronously on every accepted request (before the async BFS result
+arrives), so `GridBoard`'s animation trigger — keyed on `hintMove` transitioning from `null` to
+non-null — always sees a fresh transition to key off, which plain value-equality on the `Move`
+itself would not have produced.
 
-## 9b. Score System (added post-launch, independent of stars)
+**Concurrent-input handling:** if a real finger drag starts while the hint animation is still
+playing, the drag takes over cleanly and immediately — the hint's animation coroutine is
+explicitly cancelled (not merely out-rendered), and the move that eventually commits is exactly
+the real drag's, never a blend of the hint's suggested axis/direction and the real one. This is
+the same class of concurrent-input hazard this project has hit before (stale hint results racing
+manual play, §7's BFS dispatcher fix; overlapping cascade calls, `GameViewModel.isBusy`) and is
+covered by an explicit regression test (`GridBoardHintDragInterruptionTest`), not just inline
+reasoning, given that history.
 
-A second, continuous scoring signal alongside (not replacing) the existing discrete star rating
-(`StarRating.kt`, unchanged). Where stars are based on total moves used vs. the level's move
-limit, score is based on the specific move count at which *each* target word individually
-completed:
+## 9e. Level Select & Level Identity (added post-launch)
 
-```
-pointsForWord(moveAtCompletion, moveLimit) = round(100 * (1 - moveAtCompletion / moveLimit)^2)
-```
+**Step 4a investigation finding (blocking, resolved):** before this change, levels had no stable
+identity. Every level-advance called `generateRandomLevel()` fresh, assigning `id =
+Random.nextInt(1, Int.MAX_VALUE)` — a new random puzzle every time, never the same "level 12"
+twice. `LevelPackGenerator.kt` (Phase 6) already produced sequentially-numbered level packs, but
+was wired only into authoring/curation tooling, never the running app. `Progress.sq` could record
+"this random `levelId` scored N stars" but had no concept of level *number* or *sequence* to build
+a Level Select screen against, and a `level` row was only ever persisted on completion, so an
+unfinished level didn't exist in the database at all.
 
-clamped so the ratio never leaves `[0, 1]` (a word found exactly at the move limit scores 0, not
-negative; a word found before move 0 — not reachable in practice — would score the full 100).
-The quadratic term rewards early completion more steeply than a linear formula would, so finding
-a word well ahead of the limit is worth disproportionately more than one found just barely in
-time. Total level score is the sum across all target words. This is order-independent by
-construction: the formula only depends on the move count a word completed at, never on which
-target it was Nth to complete, consistent with this project's existing order-invariance
-guarantees (`ALGORITHM_VALIDATION.md` R4 addendum, `CascadeIntersectionGuaranteeTest`). Shown on
-the Level Complete screen alongside the star rating and efficiency message, not replacing either.
+**Resolution:** ad-hoc procedural generation is replaced entirely by a persisted, per-language
+level pack — **50 levels** per language (`LEVEL_PACK_SIZE`), seeded once via the existing,
+unmodified `generateLevel`/`generateLevelPack` pipeline (this changes level *identity*, not the
+generation algorithm) with a **fixed seed**, not `Random.Default` — the same pack content is
+produced on every fresh install/reseed, which actually makes "level 12" a stable, reproducible
+*puzzle*, not merely a stable identity pointing at whatever happened to generate first. Both
+languages' packs are seeded eagerly at app start (`AppNavHost`), analogous to
+`DictionaryRepository.seedIfNeeded()`. 50 was chosen to comfortably cover this document's intended
+difficulty curve without over-building for a larger number now — expanding it later is a one-line
+constant change, not a redesign.
 
-## 9c. Hint Economy (added post-launch)
+Endless/ad-hoc procedural play is explicitly **deferred, not deleted** — it could become a future
+mode (natural fit for the Daily Puzzle backlog item, §8.1: a deterministic date-seeded puzzle is
+the same mechanism as the pack's fixed-seed generation, just seeded differently), but isn't built
+now. Nothing here forecloses it architecturally: `generateLevel` itself is completely unchanged.
 
-Hints are no longer unlimited. A global (not per-level, not per-language) credit pool, starting
-at 3, persisted via `SettingsRepository` (`hintCredits`). Spending credits in one level or
-starting a new level does not refill them — only a genuine cold start (app process restart) does,
-wired once at `AppNavHost`'s initial composition, deliberately not on every menu visit or level
-transition. This is an intentionally blunt first pass: no in-app-purchase path to buy more
-credits exists yet (`GameScreen`'s exhausted-state has a stubbed `onHintExhausted` hook and a TODO
-for that future phase), and the reset trigger is process-restart rather than a real daily/timed
-refill, both left as deliberately deferred scope rather than half-built.
+**Important distinction — two separate scoping decisions, do not conflate them:**
+- **Unchanged, from earlier:** `ProgressRepository.totalWordsFound()`/`currentDayStreak()` (the
+  Main Menu's aggregate stats) remain **global, unpartitioned by language** — summed across
+  whatever the player has completed in either language, exactly as already decided.
+- **New, from this change:** level *content* and *per-level* progress (which level a player has
+  reached, star rating per level) are scoped by **`(level_id, language)`** — a Turkish level 7 and
+  an English level 7 are different puzzles that happen to share a number, and `Level.sq`/
+  `Progress.sq` both gained a `language` column and a composite primary key so they can coexist
+  (see `ARCHITECTURE.md` §9 and `2.sqm`'s migration note for the full schema change and how
+  pre-existing ad-hoc data was handled — kept, tagged `'tr'`, deterministically non-colliding with
+  the pack's own IDs but not with each other in the structurally-impossible sense; see that note
+  for the precise, bounded residual risk).
+
+**Unlock logic:** every level up to and including the furthest one the player has a completion
+record for is unlocked, plus exactly one more (the next level to try) — level 1 is always unlocked
+even with zero progress. Pure function (`buildLevelSelectEntries`, `LevelSelectLogicTest`), not
+inlined into the screen, given this project's history of getting state-transition logic like this
+wrong via untested ad-hoc reasoning (stale hint results, replay bugs).
+
+**Star display source:** read directly from `progress.stars` (already computed by `starsFor` at
+completion time and persisted, per §9b) — Level Select never recomputes a rating, only displays
+what was recorded.
+
+**Switching language** shows that language's own independent pack and progression — Turkish
+level 1-50 and English level 1-50 never merge or convert into each other, per the scoping decision
+above.
+
+**Addendum — found on-device (emulator, then confirmed on physical hardware with 3 rows):** the
+kept-not-deleted legacy ad-hoc progress row(s) from before this change (see the migration note
+above) initially broke `buildLevelSelectEntries`'s "furthest reached" calculation — a legacy row's
+huge random `levelId` (e.g. `2034700723`) became the `maxOrNull()` of the progress map and
+unlocked the ENTIRE 50-level pack on first install over any pre-existing test/legacy data. Fixed
+by bounding that calculation to `1..packSize` before taking the max, so out-of-range legacy keys
+are ignored regardless of how many exist or how large they are. Verified against a crafted
+pre-pack-model database with three distinct legacy rows migrated on real hardware (SM-A115F), and
+covered by `LevelSelectLogicTest`'s single- and multi-legacy-row cases.
 
 ## 9. Turkish-Language-Specific Design Notes
 

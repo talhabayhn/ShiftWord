@@ -78,6 +78,23 @@ already-broken levels look unchanged on replay), a Hint-button freeze risk
 `GameViewModel` lifecycle leak (navigating away mid-cascade no longer lets
 an abandoned level silently complete in the background).
 
+**Correction (later finding):** the "Tekrar Oyna was never actually
+broken" conclusion above resolved one real replay-related report, but not
+the only one. A separate report — "after completing a level and advancing
+to the next one... row/column drag-to-shift input doesn't work at all on
+the new level" — turned out to be a second, independent bug: `GridBoard`'s
+drag-gesture `pointerInput` was keyed only on grid size, which never
+changes between levels, so it never restarted when `AppNavHost` swapped in
+a new `GameViewModel` on level-advance/replay — the gesture handler kept
+calling into the old, disposed `GameViewModel`, silently no-op'ing every
+drag. This bug already existed, unfixed, at the time of the finding above;
+that finding's explanation (an unsolvable level looking like "nothing
+happens") was correct for what it diagnosed, but didn't rule this one out,
+since a stale gesture callback produces the same "nothing happens" symptom
+regardless of level solvability. Fixed by keying `pointerInput` on the
+`GameViewModel` instance itself in addition to size (see `GridBoard`'s
+`sessionKey` parameter); regression-tested by `GridBoardSessionKeyTest`.
+
 The reference implementation of every core algorithm still lives in
 [`word_shift_prototype_v2.py`](./word_shift_prototype_v2.py) — a Python
 prototype used purely to validate logic cheaply, not a code artifact meant

@@ -188,9 +188,22 @@ class GameViewModel(
         // conditioned on the async BFS result below, and not undone if that result later turns
         // out stale and gets dropped) -- the player spent a hint *attempt*, which is the
         // consequential/felt action, not an implementation detail of staleness plumbing.
-        if (state.hintCreditsRemaining <= 0) return
+        //
+        // TEMPORARY (Task 3, playtesting build only): UNLIMITED_HINTS_FOR_TESTING bypasses this
+        // gate so testers aren't blocked by the credit pool while trying other features. The
+        // hintCreditsRemaining infrastructure below (SettingsRepository-backed) is untouched --
+        // credits still decrement normally (and will go negative/display oddly while this flag is
+        // on, which is fine for a testing build) -- this is a one-line revert: flip the constant
+        // back to false once testing is done.
+        if (!UNLIMITED_HINTS_FOR_TESTING && state.hintCreditsRemaining <= 0) return
         hintJob?.cancel()
-        _uiState.value = state.copy(hintCreditsRemaining = state.hintCreditsRemaining - 1)
+        // Clear any previous hintMove synchronously, not just decrement credits: GridBoard's hint
+        // animation (see its LaunchedEffect) triggers on hintMove transitioning from null to
+        // non-null, so this guarantees a fresh transition -- and therefore a replayed animation --
+        // even when the new request resolves to the exact same Move as the previous one (same
+        // grid/targets -> same BFS result), which plain value-equality on hintMove would not
+        // otherwise retrigger.
+        _uiState.value = state.copy(hintCreditsRemaining = state.hintCreditsRemaining - 1, hintMove = null)
         viewModelScope.launch(hintDispatcher) { onHintUsed() }
         hintJob = viewModelScope.launch {
             val result = withContext(hintDispatcher) {
@@ -289,6 +302,15 @@ class GameViewModel(
     }
 
     companion object {
+        // TEMPORARY (Task 3): set back to false to restore normal hint-credit gating -- see
+        // requestHint's doc comment at the check site for what this bypasses and why it's safe
+        // (SettingsRepository's hintCredits infrastructure itself is untouched). While true, this
+        // intentionally fails GameViewModelHintCreditsTest's
+        // requestHintConsumesOneGlobalCreditPerAcceptedRequestAndBlocksAtZero (it asserts the
+        // gate blocks requests at 0 credits, which is exactly what this flag bypasses) -- that is
+        // expected, not a regression to chase; the test passes again the moment this flips back.
+        private const val UNLIMITED_HINTS_FOR_TESTING = true // set false after test
+
         // Shared by every GameViewModel instance, not created per-instance: AppNavHost builds a
         // new GameViewModel on every level transition/replay (remember(currentLevel, attempt)),
         // and a per-instance dedicated thread would leak a thread on every one of those, since
