@@ -218,6 +218,10 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
                 },
                 strings = stringsForLanguage(languageCode),
                 winHighlightEnabled = winHighlightEnabled,
+                // UI layout pass: `currentLevel.id` (not `selectedLevelNumber`) since it's the one
+                // that actually tracks the displayed level across "Sonraki Seviye" advances -- see
+                // GameScreen's levelNumber doc comment for why.
+                levelNumber = currentLevel.id,
             )
         }
 

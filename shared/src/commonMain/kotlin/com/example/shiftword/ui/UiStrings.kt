@@ -61,6 +61,9 @@ data class UiStrings(
     // them. LevelSelectScreen's own back button still correctly uses backToMenu (it really does
     // go to Main Menu).
     val backToLevelSelect: String,
+    // UI layout pass (reference: "Mobil Uygulama UI İskeleti"): shown in GameScreen's title area,
+    // where a static heading used to be -- now shows which pack level the player is on.
+    val levelNumberLabel: (levelNumber: Int) -> String,
 )
 
 val TurkishStrings = UiStrings(
@@ -102,6 +105,7 @@ val TurkishStrings = UiStrings(
     levelSelectTitle = "Seviye Seç",
     levelLocked = "Kilitli",
     backToLevelSelect = "← Seviyeler",
+    levelNumberLabel = { levelNumber -> "Seviye $levelNumber" },
 )
 
 val EnglishStrings = UiStrings(
@@ -143,6 +147,7 @@ val EnglishStrings = UiStrings(
     levelSelectTitle = "Select Level",
     levelLocked = "Locked",
     backToLevelSelect = "← Levels",
+    levelNumberLabel = { levelNumber -> "Level $levelNumber" },
 )
 
 fun stringsForLanguage(code: String): UiStrings = if (code == "en") EnglishStrings else TurkishStrings
