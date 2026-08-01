@@ -70,6 +70,9 @@ kotlin {
         getByName("androidHostTest") {
             dependencies {
                 implementation(libs.sqldelight.sqliteDriver)
+                implementation(libs.compose.uiTest)
+                implementation(libs.compose.uiTestJunit4)
+                implementation(libs.robolectric)
             }
         }
     }
@@ -80,6 +83,15 @@ dependencies {
 }
 
 tasks.withType<Test> {
+    // Robolectric (used by GridBoardSessionKeyTest) loads Conscrypt during Android environment
+    // setup, which builds its native-library filename via a locale-sensitive lowercase of the OS
+    // name. On a machine whose default JVM locale is Turkish, "Windows".lowercase() produces
+    // "wındows" (dotless ı) instead of "windows", so the native lib lookup fails with
+    // UnsatisfiedLinkError -- the classic JVM "Turkish locale" bug, unrelated to any of this
+    // project's own code. Forcing the test JVM's default locale to en-US sidesteps it.
+    systemProperty("user.language", "en")
+    systemProperty("user.country", "US")
+
     // Default JVM test-worker heap is too small for the 5x5 BFS/cascade-reachability
     // measurement tests (MoveLimitCalibrationTest, GeneratorMetricsTest) -- branching factor 20
     // at BFS_HARD_DEPTH_CAP=5 can enqueue millions of Grid states in a single worst-case call,

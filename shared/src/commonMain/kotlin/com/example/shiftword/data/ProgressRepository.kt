@@ -1,6 +1,7 @@
 package com.example.shiftword.data
 
 import com.example.shiftword.db.WordShiftDatabase
+import com.example.shiftword.model.Turkish
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -11,16 +12,28 @@ import kotlin.time.Instant
 
 fun todayLocalDate(): LocalDate = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date
 
+data class ProgressEntry(val stars: Int, val bestMoves: Int, val completedAtEpochMillis: Long)
+
 class ProgressRepository(private val database: WordShiftDatabase) {
 
-    fun recordCompletion(levelId: Int, stars: Int, bestMoves: Int, completedAtEpochMillis: Long) {
+    fun recordCompletion(levelId: Int, stars: Int, bestMoves: Int, completedAtEpochMillis: Long, language: String = Turkish.code) {
         database.progressQueries.upsertProgress(
             levelId = levelId.toLong(),
+            language = language,
             stars = stars.toLong(),
             bestMoves = bestMoves.toLong(),
             completedAt = completedAtEpochMillis,
         )
     }
+
+    /** [language]'s per-level progress, keyed by level number — Level Select's star-display and
+     * unlock-logic source (see `com.example.shiftword.game.buildLevelSelectEntries`, which derives
+     * "furthest reached" from this map's keys). Only completed levels have an entry; an unreached
+     * level simply has none. */
+    fun byLevelForLanguage(language: String): Map<Int, ProgressEntry> =
+        database.progressQueries.selectAllForLanguage(language).executeAsList().associate {
+            it.levelId.toInt() to ProgressEntry(stars = it.stars.toInt(), bestMoves = it.bestMoves.toInt(), completedAtEpochMillis = it.completedAt)
+        }
 
     /**
      * Sum of target-word counts across every completed level — the main menu's "words found"
@@ -30,7 +43,11 @@ class ProgressRepository(private val database: WordShiftDatabase) {
     fun totalWordsFound(): Long {
         val completed = database.progressQueries.selectAll().executeAsList()
         return completed.sumOf { row ->
-            database.levelQueries.selectById(row.levelId).executeAsOneOrNull()?.targetWords?.size ?: 0
+            // Each progress row now carries its own language (Level Select feature) -- the join
+            // must match on it too, since (levelId, language) is level's actual composite key.
+            // This aggregate itself stays unpartitioned/global, summed across both languages,
+            // exactly as already decided -- only the join key changed, not what's being summed.
+            database.levelQueries.selectById(row.levelId, row.language).executeAsOneOrNull()?.targetWords?.size ?: 0
         }.toLong()
     }
 

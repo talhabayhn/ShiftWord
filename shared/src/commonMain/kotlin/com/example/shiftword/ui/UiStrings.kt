@@ -51,6 +51,16 @@ data class UiStrings(
     // Deliberately not reusing "İpucu"/"Hint" -- that phrase now also names the hint-credit
     // economy (Feature 3) and reusing it here would blur two unrelated assists in Settings.
     val winHighlightLabel: String,
+    // Level Select feature (GAME_DESIGN.md): shown as this screen's title, and as a short label
+    // under a locked (not-yet-reachable) level card.
+    val levelSelectTitle: String,
+    val levelLocked: String,
+    // Level Select feature: GameScreen's back button now actually lands on Level Select (the
+    // nav backstack's previous entry from GAMEPLAY, popBackStack()), not the Main Menu -- reusing
+    // backToMenu's "← Menü" label there would be inaccurate now that Level Select sits between
+    // them. LevelSelectScreen's own back button still correctly uses backToMenu (it really does
+    // go to Main Menu).
+    val backToLevelSelect: String,
 )
 
 val TurkishStrings = UiStrings(
@@ -89,6 +99,9 @@ val TurkishStrings = UiStrings(
     languageTurkish = "Türkçe",
     languageEnglish = "İngilizce",
     winHighlightLabel = "Kazanan Hamle Vurgusu",
+    levelSelectTitle = "Seviye Seç",
+    levelLocked = "Kilitli",
+    backToLevelSelect = "← Seviyeler",
 )
 
 val EnglishStrings = UiStrings(
@@ -127,6 +140,9 @@ val EnglishStrings = UiStrings(
     languageTurkish = "Turkish",
     languageEnglish = "English",
     winHighlightLabel = "Winning Move Highlight",
+    levelSelectTitle = "Select Level",
+    levelLocked = "Locked",
+    backToLevelSelect = "← Levels",
 )
 
 fun stringsForLanguage(code: String): UiStrings = if (code == "en") EnglishStrings else TurkishStrings

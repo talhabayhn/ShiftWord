@@ -14,15 +14,24 @@ believed to be active bugs — they are absence of coverage, flagged so a
 future change in these areas isn't unknowingly shipped without a
 regression test.
 
-1. **No Compose UI test infrastructure exists at all** (no `androidTest`,
-   no semantics tests) — `AppNavHost`, `GameScreen`, `MainMenuScreen`,
-   `SettingsScreen`, `GridBoard` are entirely unverified by automation,
-   only by manual/on-device inspection. This is exactly where the
-   language/filler-pool bug lived, and is a standing risk for similar
-   wiring mistakes.
-2. **`GridBoard`'s drag-gesture → `Move` conversion is untested** — axis
-   selection, direction sign, and step-rounding logic have no coverage;
-   only the resulting `Move`/`Grid.apply` are tested.
+1. **Compose UI test infrastructure exists but coverage is minimal.**
+   Robolectric + `org.jetbrains.compose.ui:ui-test` were added to the
+   `androidHostTest` source set (see `shared/build.gradle.kts`, and the
+   test-only `AndroidManifest.xml` + `robolectric.properties` under
+   `shared/src/androidHostTest/`) to add `GridBoardSessionKeyTest.kt`, a
+   regression test for the stale-`pointerInput`-closure bug (drag input
+   silently dying after a level transition/replay because the gesture
+   coroutine never restarted when a new `GameViewModel` replaced the old
+   one). That's the only Compose UI test in the project so far —
+   `AppNavHost`, `GameScreen`, `MainMenuScreen`, `SettingsScreen` are
+   still entirely unverified by automation, only by manual/on-device
+   inspection. This is exactly where the language/filler-pool bug lived,
+   and is a standing risk for similar wiring mistakes.
+2. **`GridBoard`'s drag-gesture → `Move` conversion (axis selection,
+   direction sign, step-rounding) is still untested** — only the
+   `pointerInput` restart/session-identity behavior has coverage now
+   (item 1); the conversion math itself only has indirect coverage via
+   the resulting `Move`/`Grid.apply` tests.
 3. **No English-equivalent of `TurkishTest.kt`** — case-folding/round-trip
    edge cases for the English `LanguageProfile` aren't directly
    unit-tested (only indirectly via the full EN dictionary validation).

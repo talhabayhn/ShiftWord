@@ -1,0 +1,55 @@
+import kotlin.Boolean;
+import kotlin.Char;
+import kotlin.String;
+import kotlin.collections.List;
+
+-- Migration to v3: `level`/`progress` gain a `language` column and their primary keys become
+-- composite (id, language) / (levelId, language) -- levels are now a persisted, per-language pack
+-- (numbered 1..50, see GAME_DESIGN.md's Level Select section) instead of ad-hoc procedural
+-- generation with random global IDs, so `id` alone can no longer disambiguate a Turkish level from
+-- an English level sharing the same number.
+--
+-- Existing rows predate the pack model entirely (random ad-hoc IDs from Random.nextInt(1,
+-- Int.MAX_VALUE), e.g. one row observed with id=2034700723 during development) -- tagged 'tr' on
+-- migrate since that was this app's only-ever default/hardcoded language up to this point, not a
+-- guess. This is NOT a zero-collision guarantee against those old rows: the new pack's own IDs
+-- (1..50, assigned deterministically by LevelPackGenerator's sequential index) are guaranteed
+-- collision-free WITHIN the pack itself and across re-seeds (seeding is idempotent, guarded by
+-- LevelRepository.seedPackIfNeeded), but old ad-hoc IDs were drawn from the SAME full Int range
+-- that includes 1..50, so a pre-existing ad-hoc row landing in that range was always possible in
+-- principle (vanishingly unlikely -- ~2.3e-8 per legacy row -- but not structurally excluded).
+-- Since ad-hoc generation is fully removed by this same change (no more random IDs are ever
+-- created going forward), this residual risk is one-time and bounded to whatever ad-hoc data
+-- already existed at migration time, not something that grows or recurs on future re-seeds.
+-- insertLevel now uses INSERT OR REPLACE specifically so that in the (extremely unlikely) event of
+-- such a collision, the real pack level always wins over the stray legacy row rather than crashing
+-- the migration/seed step.
+
+ALTER TABLE level ADD COLUMN language TEXT NOT NULL DEFAULT 'tr';
+CREATE TABLE level_v3 (
+    id INTEGER NOT NULL,
+    language TEXT NOT NULL DEFAULT 'tr',
+    gridSize INTEGER NOT NULL,
+    initialCells TEXT AS List<List<Char>> NOT NULL,
+    targetWords TEXT AS List<String> NOT NULL,
+    moveLimit INTEGER NOT NULL,
+    minMovesToSolve INTEGER NOT NULL,
+    minMovesIsExact INTEGER AS Boolean NOT NULL,
+    PRIMARY KEY (id, language)
+);
+INSERT INTO level_v3 SELECT id, language, gridSize, initialCells, targetWords, moveLimit, minMovesToSolve, minMovesIsExact FROM level;
+DROP TABLE level;
+ALTER TABLE level_v3 RENAME TO level;
+
+ALTER TABLE progress ADD COLUMN language TEXT NOT NULL DEFAULT 'tr';
+CREATE TABLE progress_v3 (
+    levelId INTEGER NOT NULL,
+    language TEXT NOT NULL DEFAULT 'tr',
+    stars INTEGER NOT NULL,
+    bestMoves INTEGER NOT NULL,
+    completedAt INTEGER NOT NULL,
+    PRIMARY KEY (levelId, language)
+);
+INSERT INTO progress_v3 SELECT levelId, language, stars, bestMoves, completedAt FROM progress;
+DROP TABLE progress;
+ALTER TABLE progress_v3 RENAME TO progress;

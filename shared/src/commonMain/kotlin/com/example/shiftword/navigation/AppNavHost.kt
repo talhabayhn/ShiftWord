@@ -12,62 +12,51 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.shiftword.data.DictionaryRepository
+import com.example.shiftword.data.LEVEL_PACK_SIZE
 import com.example.shiftword.data.LevelRepository
 import com.example.shiftword.data.ProgressRepository
 import com.example.shiftword.data.SettingsRepository
 import com.example.shiftword.db.WordShiftDatabase
-import com.example.shiftword.domain.generateLevel
 import com.example.shiftword.game.GameViewModel
 import com.example.shiftword.game.NoSoundEffects
+import com.example.shiftword.game.buildLevelSelectEntries
 import com.example.shiftword.game.platformSoundEffects
-import com.example.shiftword.model.Level
+import com.example.shiftword.model.English
 import com.example.shiftword.model.LanguageProfiles
+import com.example.shiftword.model.Turkish
 import com.example.shiftword.ui.GameScreen
+import com.example.shiftword.ui.LevelSelectScreen
 import com.example.shiftword.ui.MainMenuScreen
 import com.example.shiftword.ui.MainMenuStats
 import com.example.shiftword.ui.SettingsScreen
 import com.example.shiftword.ui.SplashScreen
 import com.example.shiftword.ui.stringsForLanguage
 import kotlinx.coroutines.cancel
-import kotlin.random.Random
 import kotlin.time.Clock
 
 private object Routes {
     const val SPLASH = "splash"
     const val MENU = "menu"
+    const val LEVEL_SELECT = "levelSelect"
     const val GAMEPLAY = "gameplay"
     const val SETTINGS = "settings"
 }
 
 /**
- * Reads target words from the persisted, validator-gated dictionary (DictionaryRepository),
- * not the in-memory CURATED_DICTIONARY_SEED_WORDS* constants directly -- an audit found that
- * AppNavHost previously bypassed the repository entirely, meaning the R1 validator gate and the
- * `word` table it protects were never actually exercised by the running app, only by tests. The
- * constants are now only ever read once, by DictionaryRepository.seedIfNeeded(), to seed the DB.
- */
-private fun generateRandomLevel(languageCode: String, dictionaryRepository: DictionaryRepository): Level {
-    val fourLetterWords = dictionaryRepository.wordsOfLength(4, languageCode)
-    val targets = fourLetterWords.shuffled(Random.Default).take(3)
-    val generated = checkNotNull(
-        generateLevel(
-            size = 4,
-            targetWords = targets,
-            scrambleMoves = 5,
-            rng = Random.Default,
-            fillerPool = LanguageProfiles.forCode(languageCode).fillerPool,
-        ),
-    )
-    return generated.toLevel(id = Random.nextInt(1, Int.MAX_VALUE))
-}
-
-/**
- * splash -> menu -> gameplay flow (menu <-> settings, gameplay -> menu), per
- * IMPLEMENTATION_ROADMAP.md Phase 7. Level Complete stays an inline GameScreen state block
- * rather than a separate route — see GameScreen's onReplaySameLevel/onNextLevel: both are just
- * "swap the GameViewModel this same screen shows," which needs no navigation transition and
- * avoids awkward back-stack semantics (what would "back" from a solved-level screen even pop
- * to?). Reasoning recorded in ARCHITECTURE.md alongside the rest of the Phase 7 decisions.
+ * splash -> menu -> level select -> gameplay flow (menu <-> settings, level select <-> menu,
+ * gameplay -> menu), per IMPLEMENTATION_ROADMAP.md Phase 7 and the Level Select addition
+ * (GAME_DESIGN.md). Level Complete stays an inline GameScreen state block rather than a separate
+ * route — see GameScreen's onReplaySameLevel/onNextLevel: both are just "swap the GameViewModel
+ * this same screen shows," which needs no navigation transition and avoids awkward back-stack
+ * semantics (what would "back" from a solved-level screen even pop to?). Reasoning recorded in
+ * ARCHITECTURE.md alongside the rest of the Phase 7 decisions.
+ *
+ * Levels are no longer generated ad hoc per level-advance -- Step 4a's investigation (see
+ * GAME_DESIGN.md) found that model gave levels no stable identity to replay by. Both languages'
+ * packs (`LevelRepository.seedPackIfNeeded`, `LEVEL_PACK_SIZE` levels each) are seeded once here,
+ * analogous to [DictionaryRepository.seedIfNeeded] just below -- eagerly for both languages, not
+ * just the current one, so switching language in Settings always finds that language's pack
+ * already there rather than needing a lazy first-time seed.
  */
 @Composable
 fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
@@ -76,6 +65,16 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
     val levelRepository = remember { LevelRepository(database) }
     val progressRepository = remember { ProgressRepository(database) }
     val settingsRepository = remember { SettingsRepository(database) }
+
+    remember {
+        for (code in listOf(Turkish.code, English.code)) {
+            levelRepository.seedPackIfNeeded(
+                language = code,
+                wordPool = dictionaryRepository.wordsOfLength(4, code).toList(),
+                fillerPool = LanguageProfiles.forCode(code).fillerPool,
+            )
+        }
+    }
 
     // Feature 3 (GAME_DESIGN.md §9c): hint credits refill ONLY on a genuine cold start. This
     // remember block runs exactly once for AppNavHost's own composition lifetime (per this
@@ -87,6 +86,12 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
     // Read once per app-shell instantiation; the Settings screen mutates this same instance
     // going forward, so every route re-composed after a language change sees the new value.
     var languageCode by remember { mutableStateOf(settingsRepository.language()) }
+
+    // Set by Level Select just before navigating to GAMEPLAY; read once when that composable
+    // enters composition (matches this file's existing pattern of sharing state via AppNavHost-
+    // scoped `remember`s rather than nav-route arguments -- e.g. `languageCode` above -- since
+    // this app's navigation graph has no argument-passing machinery set up).
+    var selectedLevelNumber by remember { mutableIntStateOf(1) }
 
     NavHost(navController = navController, startDestination = Routes.SPLASH) {
         composable(Routes.SPLASH) {
@@ -110,7 +115,7 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
             }
             MainMenuScreen(
                 stats = stats,
-                onPlay = { navController.navigate(Routes.GAMEPLAY) },
+                onPlay = { navController.navigate(Routes.LEVEL_SELECT) },
                 // Daily Puzzle mode remains backlog (GAME_DESIGN.md §8 / Phase 6 decision) —
                 // the button exists per the mockup but is intentionally a no-op, not silently
                 // wired to a half-built feature.
@@ -120,8 +125,35 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
             )
         }
 
+        composable(Routes.LEVEL_SELECT) {
+            // Re-queried fresh every time this destination re-enters composition (returning here
+            // after finishing/backing out of a level should reflect whatever just changed).
+            val entries = remember(languageCode) {
+                buildLevelSelectEntries(LEVEL_PACK_SIZE, progressRepository.byLevelForLanguage(languageCode))
+            }
+            LevelSelectScreen(
+                entries = entries,
+                onLevelSelected = { levelNumber ->
+                    selectedLevelNumber = levelNumber
+                    navController.navigate(Routes.GAMEPLAY)
+                },
+                onBack = { navController.popBackStack() },
+                strings = stringsForLanguage(languageCode),
+            )
+        }
+
         composable(Routes.GAMEPLAY) {
-            var currentLevel by remember { mutableStateOf(generateRandomLevel(languageCode, dictionaryRepository)) }
+            // No keys needed: Navigation Compose gives this composable a fresh composition (and
+            // therefore a fresh, unkeyed `remember`) every time it's navigated to, same as before
+            // Level Select existed -- see this function's doc comment on why selectedLevelNumber/
+            // languageCode are read via shared AppNavHost-scoped state rather than nav arguments.
+            var currentLevel by remember {
+                mutableStateOf(
+                    checkNotNull(levelRepository.findById(selectedLevelNumber, languageCode)) {
+                        "Level $selectedLevelNumber not found for language '$languageCode' -- pack seeding should have run at AppNavHost startup"
+                    },
+                )
+            }
             var attempt by remember { mutableIntStateOf(0) }
             val soundEnabled = remember { settingsRepository.isSoundEnabled() }
             val winHighlightEnabled = remember { settingsRepository.isWinHighlightEnabled() }
@@ -138,10 +170,13 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
                     // session), never resets just because a new level started.
                     initialHintCredits = settingsRepository.hintCreditsRemaining(),
                     onHintUsed = { settingsRepository.consumeHintCredit() },
+                    // Level Select feature: no more levelRepository.insert(currentLevel) here --
+                    // pack levels are already persisted at seed time, not on completion, unlike
+                    // the old ad-hoc model.
                     onLevelCompleted = { stars, movesUsed ->
-                        levelRepository.insert(currentLevel)
                         progressRepository.recordCompletion(
                             levelId = currentLevel.id,
+                            language = currentLevel.language,
                             stars = stars,
                             bestMoves = movesUsed,
                             completedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
@@ -168,8 +203,18 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
                 onBackToMenu = { navController.popBackStack() },
                 onReplaySameLevel = { attempt++ },
                 onNextLevel = {
-                    currentLevel = generateRandomLevel(languageCode, dictionaryRepository)
-                    attempt++
+                    // Level Select feature: "next level" now means the next NUMBER in the pack,
+                    // not a freshly generated random level. At the pack's last level there's
+                    // nothing further to advance to -- GameScreen only shows this button on a win,
+                    // so falling back to Level Select (rather than doing nothing) is the sensible
+                    // "you've finished everything currently available" outcome.
+                    val next = levelRepository.findById(currentLevel.id + 1, languageCode)
+                    if (next != null) {
+                        currentLevel = next
+                        attempt++
+                    } else {
+                        navController.popBackStack(Routes.LEVEL_SELECT, inclusive = false)
+                    }
                 },
                 strings = stringsForLanguage(languageCode),
                 winHighlightEnabled = winHighlightEnabled,

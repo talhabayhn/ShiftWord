@@ -33,6 +33,12 @@ fun generateLevelPack(
     rng: Random,
     maxAttemptsMultiplier: Int = 20,
     fillerPool: String = DEFAULT_FILLER_POOL,
+    // Level Select feature (GAME_DESIGN.md): stamped onto every entry's Level so the pack is
+    // scoped to the language its target words came from. `nextId` below is this pack's stable,
+    // deterministic 1..count numbering -- see LevelRepository.seedPackIfNeeded and 2.sqm's doc
+    // comment for why that determinism matters (guaranteed collision-free within/across the pack,
+    // not just low-probability).
+    language: String = "tr",
 ): LevelPackReport {
     val pool = wordPool.filter { it.length == gridSize }
     val entries = mutableListOf<LevelPackEntry>()
@@ -49,7 +55,7 @@ fun generateLevelPack(
             failedAttempts++
             continue
         }
-        entries.add(LevelPackEntry(nextId, generated.toLevel(nextId), targets))
+        entries.add(LevelPackEntry(nextId, generated.toLevel(nextId, language), targets))
         nextId++
     }
     return LevelPackReport(count, entries, failedAttempts)

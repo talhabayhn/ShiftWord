@@ -155,7 +155,7 @@ data class GeneratedLevel(
     val minMovesIsExact: Boolean,
     val generationAttempts: Int,
 ) {
-    fun toLevel(id: Int): Level = Level(
+    fun toLevel(id: Int, language: String = "tr"): Level = Level(
         id = id,
         gridSize = size,
         initialCells = levelGrid.letterKey(),
@@ -163,6 +163,7 @@ data class GeneratedLevel(
         moveLimit = moveLimit,
         minMovesToSolve = minMovesToCompleteAll,
         minMovesIsExact = minMovesIsExact,
+        language = language,
     )
 }
 

@@ -3,17 +3,18 @@ package com.example.shiftword.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,6 +40,8 @@ fun GameScreen(
     // Debug/playtest surface only — the caller (app shell) decides whether this is shown,
     // per the debug-build-only gating requirement; GameViewModel itself has no notion of it.
     showDevTools: Boolean = false,
+    // Level Select feature: despite the name (kept for git-blame continuity), this now pops back
+    // to Level Select, not necessarily the Main Menu -- see backToLevelSelect's doc comment.
     onBackToMenu: () -> Unit = {},
     onReplaySameLevel: () -> Unit = {},
     onNextLevel: () -> Unit = {},
@@ -62,10 +65,6 @@ fun GameScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        TextButton(onClick = onBackToMenu) {
-            Text(strings.backToMenu, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
-        }
-
         Pill(
             text = strings.moves(state.moveCount, state.moveLimit),
             fill = SurfaceWhite,
@@ -80,29 +79,39 @@ fun GameScreen(
             }
         }
 
-        GridBoard(
-            grid = state.grid,
-            explodingCellIds = state.explodingCellIds,
-            onMove = viewModel::onMove,
-            winHighlightEnabled = winHighlightEnabled,
-            targetWords = state.remainingTargets,
-        )
+        // Task 1 (enlarge/center the board): the board is now this screen's visual focal point --
+        // it claims all the vertical space left over between the compact top info (move
+        // counter/target chips) and the bottom controls, and is centered within it, rather than
+        // sitting at a fixed 56.dp tile size immediately below the top info. See GridBoard's
+        // DEFAULT_CELL_SIZE doc comment for why 56.dp was never the intended final size (Shape.kt
+        // already documented the mockup's tiles as proportionally much larger).
+        BoxWithConstraints(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            val gridSize = state.grid.size
+            val cellSize = (minOf(maxWidth, maxHeight) / gridSize).coerceIn(56.dp, 100.dp)
+            GridBoard(
+                grid = state.grid,
+                explodingCellIds = state.explodingCellIds,
+                onMove = viewModel::onMove,
+                winHighlightEnabled = winHighlightEnabled,
+                targetWords = state.remainingTargets,
+                // See GridBoard's sessionKey doc comment -- must change whenever the viewModel
+                // this GameScreen was given changes (level advance/replay), so the drag-gesture
+                // coroutine restarts and stops calling into the previous, disposed viewModel's
+                // onMove.
+                sessionKey = viewModel,
+                hintMove = state.hintMove,
+                cellSize = cellSize,
+            )
+        }
 
-        if (!state.isWon && !state.isLost) {
-            Button(
-                onClick = viewModel::requestHint,
-                // Disabled mid-cascade: a hint computed against the pre-cascade grid wouldn't
-                // describe a move valid for whatever's about to be on screen once the explosion/
-                // refill resolves (audit finding 4a). Feature 3 (GAME_DESIGN.md §9c): also
-                // disabled once the global hint-credit pool is exhausted.
-                enabled = state.explodingCellIds.isEmpty() && state.hintCreditsRemaining > 0,
-                shape = PillShape,
-                colors = ButtonDefaults.buttonColors(containerColor = SoftCoral, contentColor = SurfaceWhite),
-            ) { Text(strings.hintWithCredits(state.hintCreditsRemaining)) }
-            if (state.hintCreditsRemaining <= 0) {
-                Text(strings.hintExhausted, style = MaterialTheme.typography.bodySmall, color = TextPrimary)
-            }
-            state.hintMove?.let { move ->
+        if (!state.isWon && !state.isLost && state.hintCreditsRemaining <= 0) {
+            Text(strings.hintExhausted, style = MaterialTheme.typography.bodySmall, color = TextPrimary)
+        }
+        state.hintMove?.let { move ->
+            if (!state.isWon && !state.isLost) {
                 Text(
                     strings.tryHint(move.axis, move.index, move.forward),
                     style = MaterialTheme.typography.bodySmall,
@@ -158,6 +167,35 @@ fun GameScreen(
                     shape = PillShape,
                     colors = ButtonDefaults.buttonColors(containerColor = SurfaceWhite, contentColor = TextPrimary),
                 ) { Text(strings.playAgain) }
+            }
+        }
+
+        // Task 2: "← Menü" moved from the top of the screen down here, next to the Hint control --
+        // with the board now centered and enlarged, a top-anchored back button read as disconnected
+        // from the rest of the controls. Uses the same pill-button tokens as every other action
+        // here (ARCHITECTURE.md §7a), not a plain TextButton, so it reads as a peer control rather
+        // than a stray top-of-screen link.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        ) {
+            Button(
+                onClick = onBackToMenu,
+                shape = PillShape,
+                colors = ButtonDefaults.buttonColors(containerColor = SurfaceWhite, contentColor = TextPrimary),
+            ) { Text(strings.backToLevelSelect) }
+
+            if (!state.isWon && !state.isLost) {
+                Button(
+                    onClick = viewModel::requestHint,
+                    // Disabled mid-cascade: a hint computed against the pre-cascade grid wouldn't
+                    // describe a move valid for whatever's about to be on screen once the
+                    // explosion/refill resolves (audit finding 4a). Feature 3 (GAME_DESIGN.md
+                    // §9c): also disabled once the global hint-credit pool is exhausted.
+                    enabled = state.explodingCellIds.isEmpty() && state.hintCreditsRemaining > 0,
+                    shape = PillShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = SoftCoral, contentColor = SurfaceWhite),
+                ) { Text(strings.hintWithCredits(state.hintCreditsRemaining)) }
             }
         }
 
