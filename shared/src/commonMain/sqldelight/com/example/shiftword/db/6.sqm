@@ -1,0 +1,19 @@
+import kotlin.Boolean;
+
+-- Migration to v7: adds hasSeenOnboarding to `settings` (GAME_DESIGN.md §9h, first-time
+-- onboarding). Defaults 0/false, matching Settings.sq's column default -- see 1.sqm's doc comment
+-- for why this ships in the same commit as the column, not after (an already-installed device's
+-- DB is only ever brought up to date by Schema.migrate(), which only runs when a .sqm file bumps
+-- the schema version -- a column added without one crashes existing installs with "no such
+-- column" the next time SettingsRepository reads/writes it).
+--
+-- Any device already installed before this migration lands on hasSeenOnboarding=false (the
+-- column's DEFAULT), meaning it will see the onboarding experience once on its next launch even
+-- though it isn't a genuinely first-ever install. This is accepted, not an oversight: there is no
+-- "already onboarded" signal to backfill from for pre-existing installs (nothing tracked
+-- first-launch before this flag existed), and false is the strictly safer default of the two --
+-- an onboarding sequence a returning tester sees once more is a minor, one-time nuisance, whereas
+-- defaulting true would silently skip onboarding for every genuinely-new player already counted
+-- among "existing" rows at migration time, which is the actual failure this feature exists to
+-- prevent.
+ALTER TABLE settings ADD COLUMN hasSeenOnboarding INTEGER AS Boolean NOT NULL DEFAULT 0;

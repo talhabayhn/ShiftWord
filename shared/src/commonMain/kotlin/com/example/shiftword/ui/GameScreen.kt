@@ -73,6 +73,12 @@ fun GameScreen(
     // column default. Threaded straight through to GridBoard, which owns the actual animation
     // specs this setting simplifies/shortens (see its own doc comment).
     reducedMotion: Boolean = false,
+    // Onboarding (GAME_DESIGN.md §9h): derived by the caller from isOnboardingLevel(hasSeenOnboarding,
+    // levelNumber) -- the single flag every onboarding surface on this screen (win-highlight force-on
+    // is applied by the caller before winHighlightEnabled even reaches here; the swipe bubble, the
+    // hint-button callout, and the first-win explanation below all check this directly) shares, so
+    // they're provably tied together rather than four independent conditions that could drift.
+    isOnboardingLevel: Boolean = false,
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -176,8 +182,13 @@ fun GameScreen(
                     }
                     state.hintMove?.let { move ->
                         if (!state.isWon && !state.isLost) {
+                            // Onboarding (GAME_DESIGN.md §9h): the unprompted, auto-played first
+                            // hint shows a short instructional bubble instead of the normal
+                            // tryHint text -- isOnboardingHint is only ever true for that one
+                            // occurrence (GameViewModel.autoPlayOnboardingHint), never for a
+                            // player-requested hint, even on the same level.
                             Text(
-                                strings.tryHint(move.axis, move.index, move.forward),
+                                if (state.isOnboardingHint) strings.onboardingSwipeHint else strings.tryHint(move.axis, move.index, move.forward),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextPrimary,
                             )
@@ -233,6 +244,20 @@ fun GameScreen(
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = TextPrimary,
                                     )
+                                    // Onboarding (GAME_DESIGN.md §9h): a brief one-time addition to
+                                    // this existing win-state block, shown only on the level-1 win
+                                    // that flips hasSeenOnboarding true (isOnboardingLevel was
+                                    // computed by the caller BEFORE that flip -- see AppNavHost's
+                                    // onLevelCompleted -- so it stays correctly true for this
+                                    // screen's whole remaining lifetime even though the persisted
+                                    // setting changes underneath it moments later).
+                                    if (isOnboardingLevel) {
+                                        Text(
+                                            strings.onboardingWinExplanation,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextPrimary,
+                                        )
+                                    }
                                     Button(
                                         onClick = onNextLevel,
                                         shape = PillShape,
@@ -291,16 +316,26 @@ fun GameScreen(
                 ) { Text(strings.backToLevelSelect) }
 
                 if (!state.isWon && !state.isLost) {
-                    Button(
-                        onClick = viewModel::requestHint,
-                        // Disabled mid-cascade: a hint computed against the pre-cascade grid wouldn't
-                        // describe a move valid for whatever's about to be on screen once the
-                        // explosion/refill resolves (audit finding 4a). Feature 3 (GAME_DESIGN.md
-                        // §9c): also disabled once the global hint-credit pool is exhausted.
-                        enabled = state.explodingCellIds.isEmpty() && state.hintCreditsRemaining > 0,
-                        shape = PillShape,
-                        colors = ButtonDefaults.buttonColors(containerColor = SoftCoral, contentColor = OnAccent),
-                    ) { Text(strings.hintWithCredits(state.hintCreditsRemaining)) }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // Onboarding (GAME_DESIGN.md §9h): a one-time callout pointing at the Hint
+                        // button, shown after enough consecutive no-match moves during onboarding
+                        // (GameViewModel.hintButtonCalloutThresholdMoves). Reuses the same Pill
+                        // composable/tokens as every other chip on this screen -- no new visual
+                        // language -- placed directly above the button it's introducing.
+                        if (state.hintButtonCalloutVisible) {
+                            Pill(text = strings.onboardingHintButtonCallout, fill = SoftCoral, textColor = OnAccent)
+                        }
+                        Button(
+                            onClick = viewModel::requestHint,
+                            // Disabled mid-cascade: a hint computed against the pre-cascade grid wouldn't
+                            // describe a move valid for whatever's about to be on screen once the
+                            // explosion/refill resolves (audit finding 4a). Feature 3 (GAME_DESIGN.md
+                            // §9c): also disabled once the global hint-credit pool is exhausted.
+                            enabled = state.explodingCellIds.isEmpty() && state.hintCreditsRemaining > 0,
+                            shape = PillShape,
+                            colors = ButtonDefaults.buttonColors(containerColor = SoftCoral, contentColor = OnAccent),
+                        ) { Text(strings.hintWithCredits(state.hintCreditsRemaining)) }
+                    }
                 }
             }
 

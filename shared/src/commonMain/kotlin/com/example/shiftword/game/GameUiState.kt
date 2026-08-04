@@ -29,6 +29,21 @@ data class GameUiState(
     // hints are used; it does NOT reset itself on level transitions. Defaults to effectively
     // unlimited so existing call sites/tests that don't care about the hint economy are unaffected.
     val hintCreditsRemaining: Int = Int.MAX_VALUE,
+    // Onboarding (GAME_DESIGN.md §9h): true only for the hintMove GameViewModel auto-played
+    // unprompted (see autoPlayOnboardingHint) -- distinguishes it from a normal player-requested
+    // hint so GameScreen knows to show the onboarding swipe bubble instead of the regular tryHint
+    // text. Cleared alongside hintMove everywhere hintMove itself is cleared.
+    val isOnboardingHint: Boolean = false,
+    // Onboarding (GAME_DESIGN.md §9h): consecutive moves committed since the last one that found
+    // any word, reset to 0 the moment a match is found. Drives the hint-button callout's trigger
+    // condition (movesSinceLastMatch >= threshold) -- unrelated to moveCount/moveLimit, which
+    // track the whole level, not a "haven't found anything in a while" streak.
+    val movesSinceLastMatch: Int = 0,
+    // Onboarding (GAME_DESIGN.md §9h): true once the hint-button callout has been triggered for
+    // this GameViewModel instance -- shown until dismissed by the next move or a real hint
+    // request. GameViewModel guarantees this is set true at most once per instance regardless of
+    // how many further no-match moves follow (see hintCalloutShownOnce).
+    val hintButtonCalloutVisible: Boolean = false,
 ) {
     val remainingTargets: Set<String> get() = targetWords.toSet() - foundWords
     val totalScore: Int get() = scoreForLevel(foundAtMoveCount, moveLimit)

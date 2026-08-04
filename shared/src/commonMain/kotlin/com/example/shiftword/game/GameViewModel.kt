@@ -83,6 +83,17 @@ class GameViewModel(
     // persistence is intentionally not a direct GameViewModel dependency, same reasoning as
     // onLevelCompleted above. Caller (AppNavHost) wires this to SettingsRepository.consumeHintCredit().
     private val onHintUsed: () -> Unit = {},
+    // Onboarding (GAME_DESIGN.md §9h): when true, the hint-nudge animation plays once,
+    // unprompted, as soon as this GameViewModel is constructed -- see autoPlayOnboardingHint.
+    // Defaults false so every existing call site/test is unaffected. The caller (AppNavHost)
+    // derives this from isOnboardingLevel(hasSeenOnboarding, levelNumber), never level number
+    // alone -- see that function's doc comment for why all onboarding surfaces share one gate.
+    private val playOnboardingHintOnStart: Boolean = false,
+    // Onboarding (GAME_DESIGN.md §9h): when true, movesSinceLastMatch reaching
+    // [hintButtonCalloutThresholdMoves] triggers the one-time hint-button callout. Same
+    // isOnboardingLevel-derived gate as [playOnboardingHintOnStart].
+    private val hintButtonCalloutEligible: Boolean = false,
+    private val hintButtonCalloutThresholdMoves: Int = 3,
 ) : ViewModel() {
 
     private var nextCellId = 0L
@@ -107,6 +118,16 @@ class GameViewModel(
         ),
     )
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
+
+    // Onboarding (GAME_DESIGN.md §9h): fires exactly once per instance, at construction, mirroring
+    // how UNLIMITED_HINTS_FOR_TESTING/every other constructor-driven one-shot in this class works.
+    // A fresh GameViewModel is created per level/replay attempt (AppNavHost's remember(currentLevel,
+    // attempt)), so this naturally re-fires on a replay of level 1 taken before the player's first
+    // win -- acceptable and intended, since hasSeenOnboarding (and therefore playOnboardingHintOnStart,
+    // via isOnboardingLevel) only ever flips false->true on that first win, never back.
+    init {
+        if (playOnboardingHintOnStart) autoPlayOnboardingHint()
+    }
 
     // P3 real-device playtesting finding: moving resolveCascade() off Main (see processShiftedGrid)
     // means it can now run on a genuinely multi-threaded dispatcher, not the always-single-
@@ -212,7 +233,15 @@ class GameViewModel(
         // even when the new request resolves to the exact same Move as the previous one (same
         // grid/targets -> same BFS result), which plain value-equality on hintMove would not
         // otherwise retrigger.
-        _uiState.value = state.copy(hintCreditsRemaining = state.hintCreditsRemaining - 1, hintMove = null)
+        // Onboarding: a real hint request always clears isOnboardingHint (this is no longer the
+        // unprompted auto-played one) and dismisses the hint-button callout if it was showing --
+        // the player just found and used the button, so there's nothing left to point out.
+        _uiState.value = state.copy(
+            hintCreditsRemaining = state.hintCreditsRemaining - 1,
+            hintMove = null,
+            isOnboardingHint = false,
+            hintButtonCalloutVisible = false,
+        )
         viewModelScope.launch(hintDispatcher) { onHintUsed() }
         hintJob = viewModelScope.launch {
             val result = withContext(hintDispatcher) {
@@ -224,6 +253,37 @@ class GameViewModel(
             _uiState.value = current.copy(hintMove = result?.path?.firstOrNull())
         }
     }
+
+    /**
+     * Onboarding (GAME_DESIGN.md §9h): shows the very first move to a brand-new player, the same
+     * way requestHint() does -- reusing the identical BFS call and the identical hintMove
+     * null->non-null transition GridBoard's animation keys on -- but as an unprompted, automatic
+     * one-shot rather than a player-initiated request: no isBusy/credit gate (there's nothing to
+     * be busy with yet, this only ever runs from init{}), no hintCreditsRemaining decrement, and
+     * no onHintUsed() call, since spending a hint credit on onboarding would be indistinguishable
+     * from a real hint the player never asked for. [GameUiState.isOnboardingHint] is set alongside
+     * hintMove so GameScreen can show the onboarding swipe bubble instead of the regular tryHint
+     * text for this specific occurrence.
+     */
+    private fun autoPlayOnboardingHint() {
+        val state = _uiState.value
+        hintJob?.cancel()
+        hintJob = viewModelScope.launch {
+            val result = withContext(hintDispatcher) {
+                val scope = this
+                bfsMinMovesToAnyTarget(state.grid, state.remainingTargets, isActive = { scope.isActive })
+            }
+            val current = _uiState.value
+            if (current.grid !== state.grid) return@launch // grid changed while BFS ran -- stale, drop it
+            _uiState.value = current.copy(hintMove = result?.path?.firstOrNull(), isOnboardingHint = true)
+        }
+    }
+
+    // Onboarding (GAME_DESIGN.md §9h): guarantees the hint-button callout is triggered at most
+    // once per GameViewModel instance -- a plain state-derived condition (movesSinceLastMatch >=
+    // threshold) would otherwise re-arm itself on every subsequent no-match move past the
+    // threshold, contradicting "only ever shown once."
+    private var hintCalloutShownOnce = false
 
     private suspend fun processShiftedGrid(state: GameUiState, shifted: Grid) {
         // Fire-and-forget on soundDispatcher -- see its constructor doc comment. Dispatched
@@ -240,7 +300,7 @@ class GameViewModel(
         }
 
         val explodingIds = matches.flatMap { (_, positions) -> positions.map { (r, c) -> shifted.cells[r][c].id } }.toSet()
-        _uiState.value = state.copy(grid = shifted, explodingCellIds = explodingIds, hintMove = null)
+        _uiState.value = state.copy(grid = shifted, explodingCellIds = explodingIds, hintMove = null, isOnboardingHint = false)
         delay(if (reducedMotion) REDUCED_EXPLOSION_DELAY_MS else explosionDelayMs)
 
         // P3 real-device playtesting finding: resolveCascade's exhaustive/random-sampling
@@ -287,6 +347,18 @@ class GameViewModel(
         // any found incidentally as part of the same cascade -- to this same move count, since
         // that's the move count a player would actually see on screen when it happened.
         val newFoundAtMoveCount = previous.foundAtMoveCount + newlyFound.associateWith { newMoveCount }
+
+        // Onboarding (GAME_DESIGN.md §9h): movesSinceLastMatch resets to 0 the moment this move
+        // found any word (including incidentally, via cascade), otherwise increments -- drives the
+        // hint-button callout, which is triggered at most once per instance (hintCalloutShownOnce)
+        // regardless of how many further no-match moves follow.
+        val newMovesSinceLastMatch = if (newlyFound.isNotEmpty()) 0 else previous.movesSinceLastMatch + 1
+        val triggersCallout = hintButtonCalloutEligible &&
+            !hintCalloutShownOnce &&
+            !isWon && !isLost &&
+            newMovesSinceLastMatch >= hintButtonCalloutThresholdMoves
+        if (triggersCallout) hintCalloutShownOnce = true
+
         _uiState.value = previous.copy(
             grid = finalGrid,
             foundWords = foundWords,
@@ -296,6 +368,14 @@ class GameViewModel(
             isLost = isLost,
             explodingCellIds = emptySet(),
             hintMove = null,
+            isOnboardingHint = false,
+            movesSinceLastMatch = newMovesSinceLastMatch,
+            // Visible only for the single move that crossed the threshold -- the NEXT move (this
+            // same commit() path, next time it runs) always overwrites it back to false via this
+            // same assignment, since hintCalloutShownOnce prevents triggersCallout from ever being
+            // true again. Dismissed earlier than that if the player taps Hint directly (see
+            // requestHint's explicit hintButtonCalloutVisible = false).
+            hintButtonCalloutVisible = triggersCallout,
         )
         // Win/loss sound: fired exactly at the transition (isBusy() already guarantees commit()
         // is never re-entered once isWon/isLost is true, so seeing either flag true here always
