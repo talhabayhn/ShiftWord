@@ -43,6 +43,46 @@ class SettingsRepositoryTest {
         assertEquals(DEFAULT_HINT_CREDITS, repository.hintCreditsRemaining())
         assertFalse(repository.isReducedMotionEnabled(), "reduced motion must default off -- the existing animated experience stays default")
         assertFalse(repository.isDarkModeEnabled(), "dark mode must default off -- light theme stays default")
+        assertFalse(repository.isHasSeenOnboarding(), "onboarding must default unseen -- a brand-new install must always see it once")
+    }
+
+    /**
+     * GAME_DESIGN.md §9h: hasSeenOnboarding is a one-time flag -- these prove it round-trips
+     * correctly and, per the existing read-then-INSERT-OR-REPLACE pattern, never clobbers or is
+     * clobbered by any other setting.
+     */
+    @Test
+    fun settingHasSeenOnboardingPersistsAndDoesNotClobberOtherSettings() {
+        repository.setSoundEnabled(false)
+        repository.setLanguage(English.code)
+        repository.setWinHighlightEnabled(true)
+        repository.consumeHintCredit()
+        repository.setReducedMotionEnabled(true)
+        repository.setDarkModeEnabled(true)
+
+        repository.setHasSeenOnboarding(true)
+
+        assertTrue(repository.isHasSeenOnboarding())
+        assertFalse(repository.isSoundEnabled(), "setting hasSeenOnboarding must not reset sound back to its column default")
+        assertEquals(English.code, repository.language(), "setting hasSeenOnboarding must not reset language back to its column default")
+        assertTrue(repository.isWinHighlightEnabled(), "setting hasSeenOnboarding must not reset win highlight back to its column default")
+        assertEquals(DEFAULT_HINT_CREDITS - 1, repository.hintCreditsRemaining(), "setting hasSeenOnboarding must not reset hint credits back to their column default")
+        assertTrue(repository.isReducedMotionEnabled(), "setting hasSeenOnboarding must not reset reduced motion back to its column default")
+        assertTrue(repository.isDarkModeEnabled(), "setting hasSeenOnboarding must not reset dark mode back to its column default")
+    }
+
+    @Test
+    fun settingOtherSettingsDoesNotClobberAPreviouslySetHasSeenOnboarding() {
+        repository.setHasSeenOnboarding(true)
+
+        repository.setSoundEnabled(false)
+        repository.setLanguage(English.code)
+        repository.setWinHighlightEnabled(true)
+        repository.consumeHintCredit()
+        repository.setReducedMotionEnabled(true)
+        repository.setDarkModeEnabled(true)
+
+        assertTrue(repository.isHasSeenOnboarding(), "toggling other settings must not reset hasSeenOnboarding back to its column default")
     }
 
     @Test
@@ -245,7 +285,11 @@ class SettingsRepositoryTest {
         migrationDriver.execute(null, "INSERT INTO settings(id, soundEnabled, language) VALUES (0, 0, 'en')", 0)
         createPreLevelSelectLevelAndProgressTables(migrationDriver)
 
-        WordShiftDatabase.Schema.migrate(migrationDriver, 1, 4)
+        // Migrates all the way to the latest schema (not just the version this migration used to
+        // stop at) -- every migration test in this file should always target the latest schema,
+        // or it stops proving what an actual already-installed device experiences on a real
+        // upgrade (which always jumps straight to the latest version, never stops partway).
+        WordShiftDatabase.Schema.migrate(migrationDriver, 1, WordShiftDatabase.Schema.version)
 
         val migratedRepository = SettingsRepository(createDatabase(migrationDriver))
         assertFalse(migratedRepository.isSoundEnabled(), "pre-existing soundEnabled value must survive the migration")
@@ -254,6 +298,7 @@ class SettingsRepositoryTest {
         assertEquals(DEFAULT_HINT_CREDITS, migratedRepository.hintCreditsRemaining(), "hintCredits must land with its DEFAULT value on migrated rows, not crash or come back 0")
         assertFalse(migratedRepository.isReducedMotionEnabled(), "reducedMotionEnabled must land with its DEFAULT value on migrated rows, not crash or come back null")
         assertFalse(migratedRepository.isDarkModeEnabled(), "darkModeEnabled must land with its DEFAULT value on migrated rows, not crash or come back null")
+        assertFalse(migratedRepository.isHasSeenOnboarding(), "hasSeenOnboarding must land with its DEFAULT value on migrated rows, not crash or come back null")
         migrationDriver.close()
     }
 
@@ -275,7 +320,7 @@ class SettingsRepositoryTest {
         migrationDriver.execute(null, "INSERT INTO settings(id, soundEnabled, language, winHighlightEnabled, hintCredits) VALUES (0, 0, 'en', 1, 1)", 0)
         createPreLevelSelectLevelAndProgressTables(migrationDriver)
 
-        WordShiftDatabase.Schema.migrate(migrationDriver, 2, 4)
+        WordShiftDatabase.Schema.migrate(migrationDriver, 2, WordShiftDatabase.Schema.version)
 
         val migratedRepository = SettingsRepository(createDatabase(migrationDriver))
         assertFalse(migratedRepository.isSoundEnabled(), "pre-existing soundEnabled value must survive the migration")
@@ -284,6 +329,61 @@ class SettingsRepositoryTest {
         assertEquals(1, migratedRepository.hintCreditsRemaining(), "pre-existing hintCredits value must survive the migration")
         assertFalse(migratedRepository.isReducedMotionEnabled(), "reducedMotionEnabled must land with its DEFAULT value on migrated rows, not crash or come back null")
         assertFalse(migratedRepository.isDarkModeEnabled(), "darkModeEnabled must land with its DEFAULT value on migrated rows, not crash or come back null")
+        assertFalse(migratedRepository.isHasSeenOnboarding(), "hasSeenOnboarding must land with its DEFAULT value on migrated rows, not crash or come back null")
+        migrationDriver.close()
+    }
+
+    // Post-2.sqm shape (language column + composite primary key) -- 4.sqm and 5.sqm both only
+    // DELETE rows from these tables, they don't change their column shape, so this is what any
+    // already-installed real device's level/progress tables look like by the time 5.sqm/6.sqm run.
+    private fun createPostLevelSelectLevelAndProgressTablesWithSampleRows(driver: JdbcSqliteDriver) {
+        driver.execute(
+            null,
+            "CREATE TABLE level (id INTEGER NOT NULL, language TEXT NOT NULL DEFAULT 'tr', gridSize INTEGER NOT NULL, initialCells TEXT NOT NULL, targetWords TEXT NOT NULL, moveLimit INTEGER NOT NULL, minMovesToSolve INTEGER NOT NULL, minMovesIsExact INTEGER NOT NULL, PRIMARY KEY (id, language))",
+            0,
+        )
+        driver.execute(null, "INSERT INTO level(id, language, gridSize, initialCells, targetWords, moveLimit, minMovesToSolve, minMovesIsExact) VALUES (1, 'tr', 4, 'AAAA', 'KALE', 8, 5, 0)", 0)
+        driver.execute(
+            null,
+            "CREATE TABLE progress (levelId INTEGER NOT NULL, language TEXT NOT NULL DEFAULT 'tr', stars INTEGER NOT NULL, bestMoves INTEGER NOT NULL, completedAt INTEGER NOT NULL, PRIMARY KEY (levelId, language))",
+            0,
+        )
+        driver.execute(null, "INSERT INTO progress(levelId, language, stars, bestMoves, completedAt) VALUES (1, 'tr', 3, 5, 1000)", 0)
+    }
+
+    /**
+     * GAME_DESIGN.md §9g's addendum / §9h: migration #3 in this project's "pre-launch progress
+     * reset" pattern -- level 1's onboarding-tuned regeneration (5.sqm) wipes `level`/`progress`
+     * the same way 4.sqm did for the difficulty-tiering pass, and hasSeenOnboarding (6.sqm) lands
+     * in the same v4->v7 jump. Starts from a v4-shaped database (post-3.sqm, pre-5.sqm/6.sqm) with
+     * real rows in `level`/`progress`, matching what an already-installed real device actually has
+     * at this point, not a from-scratch Schema.create().
+     */
+    @Test
+    fun migratingFromTheV4SchemaWipesLevelAndProgressAndAddsHasSeenOnboarding() {
+        val migrationDriver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        migrationDriver.execute(
+            null,
+            "CREATE TABLE settings (id INTEGER NOT NULL PRIMARY KEY, soundEnabled INTEGER NOT NULL DEFAULT 1, language TEXT NOT NULL DEFAULT 'tr', winHighlightEnabled INTEGER NOT NULL DEFAULT 0, hintCredits INTEGER NOT NULL DEFAULT 3, reducedMotionEnabled INTEGER NOT NULL DEFAULT 0, darkModeEnabled INTEGER NOT NULL DEFAULT 0)",
+            0,
+        )
+        migrationDriver.execute(null, "INSERT INTO settings(id, soundEnabled, language, winHighlightEnabled, hintCredits, reducedMotionEnabled, darkModeEnabled) VALUES (0, 0, 'en', 1, 1, 1, 1)", 0)
+        createPostLevelSelectLevelAndProgressTablesWithSampleRows(migrationDriver)
+
+        WordShiftDatabase.Schema.migrate(migrationDriver, 4, WordShiftDatabase.Schema.version)
+
+        val migratedRepository = SettingsRepository(createDatabase(migrationDriver))
+        assertFalse(migratedRepository.isSoundEnabled(), "pre-existing soundEnabled value must survive the migration")
+        assertEquals(English.code, migratedRepository.language(), "pre-existing language value must survive the migration")
+        assertTrue(migratedRepository.isWinHighlightEnabled(), "pre-existing winHighlightEnabled value must survive the migration")
+        assertEquals(1, migratedRepository.hintCreditsRemaining(), "pre-existing hintCredits value must survive the migration")
+        assertTrue(migratedRepository.isReducedMotionEnabled(), "pre-existing reducedMotionEnabled value must survive the migration")
+        assertTrue(migratedRepository.isDarkModeEnabled(), "pre-existing darkModeEnabled value must survive the migration")
+        assertFalse(migratedRepository.isHasSeenOnboarding(), "hasSeenOnboarding must land with its DEFAULT value on migrated rows, not crash or come back null")
+
+        val migratedDatabase = createDatabase(migrationDriver)
+        assertTrue(LevelRepository(migratedDatabase).all().isEmpty(), "5.sqm must wipe pre-existing level rows ahead of level 1's onboarding-tuned regeneration")
+        assertTrue(ProgressRepository(migratedDatabase).byLevelForLanguage(Turkish.code).isEmpty(), "5.sqm must wipe pre-existing progress rows referencing the old level content")
         migrationDriver.close()
     }
 }

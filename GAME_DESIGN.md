@@ -325,6 +325,134 @@ preserving orphaned progress against regenerated content. This reasoning is one-
 this specific regeneration — it does not establish a standing policy of wiping progress on future
 content changes; see `4.sqm`'s own comment and `ARCHITECTURE.md` §9 for the migration mechanics.
 
+**Addendum — a third migration in the same category (5.sqm, §9h):** level 1's onboarding-tuned
+regeneration (carved out of the original 1-10 tier into its own single-level range with
+`scrambleMoves=2` instead of 5 — see §9h) changes level 1's actual puzzle content the same way the
+difficulty-tiering pass above changed every level's content: same level *number*, different grid
+layout and move limit underneath it. `5.sqm` wipes `level`/`progress` again, for the identical
+reason this section already gives — pre-launch, no real user data to preserve, and a kept progress
+row would misdescribe regenerated content rather than merely go stale. This is now the **third**
+migration in this project's "pre-launch progress reset" pattern:
+
+1. `2.sqm` (Level Select) — the one exception: **kept**, not wiped. Old ad-hoc rows predated the
+   pack model entirely and were still valid content, just missing a `language` tag, so tagging
+   them `'tr'` was correct rather than destructive.
+2. `4.sqm` (difficulty-tiering) — **wiped**. The pack's content changed under the same level
+   numbers, so kept progress would misdescribe it.
+3. `5.sqm` (level 1's onboarding scramble) — **wiped**, same reasoning as `4.sqm`, applied to a
+   single level's content change rather than the whole pack.
+
+The distinction that actually matters, restated for a future reader who might reach for "wipe" or
+"keep" without rederiving it: wipe when the level *content* referenced by an existing progress row
+changes underneath the same identity; keep (and just tag/backfill) when the row's content is still
+valid and only its *schema* changed. Each of these three migrations independently arrived at the
+correct side of that distinction — this note exists so the next one doesn't have to rediscover it
+from three separate `.sqm` comments.
+
+## 9h. First-Time Onboarding (added post-launch)
+
+A one-time, first-install-only sequence for a brand-new player, built entirely on existing
+systems (settings persistence, the hint-nudge animation, the win-highlight setting, the existing
+inline win-state block) rather than any new onboarding-specific infrastructure.
+
+**Gate: `hasSeenOnboarding`.** A persisted boolean (`SettingsRepository`, `Settings.sq`/`6.sqm`),
+same read-then-`INSERT OR REPLACE` pattern as every other setting, defaulting false. Not
+re-triggerable from Settings — there is no "replay onboarding" option, and no setter exists to
+flip it back to false once true. Every onboarding surface below is derived from a single pure
+function, `isOnboardingLevel(hasSeenOnboarding, levelNumber) = !hasSeenOnboarding && levelNumber
+== 1` (`game/OnboardingLogic.kt`) — kept standalone and unit-tested (`OnboardingLogicTest`) for the
+same reason `buildLevelSelectEntries` was: this is exactly the kind of state-transition condition
+this project has gotten wrong before via untested ad-hoc reasoning, and four independent copies of
+it at four call sites could drift apart in a way one shared function can't.
+
+**Level 1's own content — tighter scramble, not a separate generation path.** Investigated before
+building anything else (see §9g's addendum above for the migration this required): measured
+directly (`MoveLimitCalibrationTest`), the original tier-1 parameters (`scrambleMoves=5`, 2 words,
+4×4) required ~4.9 real moves on average (1-9 range, 500 trials) under optimal play —
+indistinguishable in difficulty from an ordinary early-game puzzle, not a "close to solved
+already" teaching moment for a player who has never performed the drag-to-shift gesture before.
+Level 1 was carved out of the original 1-10 tier into its own single-level `DifficultyTier` entry
+with `scrambleMoves=2` (`LevelPackGenerator.DEFAULT_DIFFICULTY_TIERS`), measuring ~2.8 moves on
+average (1-6 range). Deliberately **not** a separate onboarding-only generation path: level 1 is a
+single, fixed-seed, persisted puzzle generated once for the whole pack like every other level, so
+there's no need to hedge against a wide real-world distribution the way a per-install-random
+tier's average would — and keeping level 1 permanently the easiest level in the pack (onboarding
+or not) is a reasonable standing design decision on its own, not a special case that needs
+unwinding after a player's first session.
+
+**Step 3 — auto-played hint nudge.** `GameViewModel` gains a `playOnboardingHintOnStart`
+constructor flag; when true (`AppNavHost` passes `isOnboardingLevel(...)`), `init{}` calls
+`autoPlayOnboardingHint()` — the same `bfsMinMovesToAnyTarget` call and the same `hintMove`
+null→non-null transition `GridBoard`'s existing nudge animation (§9d) already keys on, just
+triggered automatically instead of by a player tapping Hint. Deliberately does **not** go through
+`requestHint()`'s credit-gate/decrement/`onHintUsed()` path — spending a hint credit on something
+the player never asked for would be indistinguishable from a real hint they didn't request.
+`GameUiState.isOnboardingHint` is set alongside `hintMove` so `GameScreen` can show a short
+instructional text bubble (`onboardingSwipeHint`, reusing the exact same bottom-of-board `Text`
+slot the normal `tryHint` message already occupies — no new UI surface) instead of the regular
+hint text for this one occurrence. Cleared back to false the moment a real move commits or a real
+hint is requested, so it can never bleed into a later, genuinely player-requested hint.
+
+**Step 4 — forced win highlight for level 1 only.** `AppNavHost` computes `winHighlightEnabled =
+settingsRepository.isWinHighlightEnabled() || isOnboardingLevel(...)` — an in-memory `||` applied
+only to the value threaded to `GameScreen`/`GridBoard`; `setWinHighlightEnabled` is never called,
+so the player's real persisted preference is untouched and takes over unmodified from level 2
+onward (or immediately, if they already had it on).
+
+**Step 5 — contextual hint-button callout.** `GameViewModel` tracks
+`movesSinceLastMatch` (reset to 0 whenever a move finds any word, including incidentally via
+cascade) and exposes `hintButtonCalloutVisible`, gated by a `hintButtonCalloutEligible` flag (same
+`isOnboardingLevel`-derived source as step 3) and a threshold (`hintButtonCalloutThresholdMoves`,
+default 3 consecutive no-match moves). A private `hintCalloutShownOnce` guard means it fires at
+most once per `GameViewModel` instance regardless of how much further no-match play follows —
+"only ever shown once" is enforced structurally, not by a soft re-check. Visible for exactly the
+move that crossed the threshold, dismissed by the next move or immediately by an actual `Hint` tap
+(`requestHint` explicitly clears it — the player found the button, there's nothing left to point
+at). Rendered as the existing `Pill` composable (same tokens as every other chip on the screen)
+placed directly above the Hint button — no new visual language, no coordinate-overlay machinery.
+
+**Step 6 — first-win explanation, and the flag flip.** `GameScreen`'s existing inline win-state
+block (§7a/§7b — never a separate route) gains one conditional `Text` between the score label and
+the action buttons, shown when `isOnboardingLevel` (computed once per `GAMEPLAY` composable entry,
+so it stays correctly true for this specific win screen's whole lifetime even after the flag
+flips underneath it — see below). The flag itself flips inside the *existing*
+`onLevelCompleted` callback `AppNavHost` already wires to `GameViewModel` — no new callback was
+added: `if (!settingsRepository.isHasSeenOnboarding()) settingsRepository.setHasSeenOnboarding(true)`,
+right after the existing `progressRepository.recordCompletion(...)` call. No explicit level-number
+check is needed there: Level Select's unlock logic (§9e) keeps every level but 1 locked until it
+has a completion record, so the *first* completion `onLevelCompleted` is ever called for is, by
+construction, always level 1's, while `hasSeenOnboarding` is still false.
+
+**Why one shared gate is safe for all four steps.** Because `isOnboardingLevel` is re-derived
+fresh (`remember { settingsRepository.isHasSeenOnboarding() }`) each time the `GAMEPLAY`
+composable is newly entered, and because `hasSeenOnboarding` only ever transitions false→true (via
+step 6, never back), every one of steps 3-5 naturally stops firing forever the moment the player
+completes level 1 for the first time — there's no separate "have I shown this specific thing
+before" flag needed for the hint nudge or the win-highlight override, only for the callout (which
+needs "at most once *within* a single still-onboarding session," a strictly narrower guarantee
+`hintCalloutShownOnce` provides locally). Replaying level 1 before ever winning it (e.g. quitting
+back to Level Select and re-entering) is expected to re-show steps 3-5 — `hasSeenOnboarding` is
+still false, so `isOnboardingLevel` is still true, and there is nothing else it should mean for a
+player who hasn't finished onboarding yet.
+
+**Localization and design tokens.** All onboarding text (`onboardingSwipeHint`,
+`onboardingHintButtonCallout`, `onboardingWinExplanation`) follows `UiStrings`' existing TR/EN
+field-pair convention (`UiStrings.kt`) — independently phrased per language, not a single string
+parameterized by a noun. Every onboarding UI element reuses existing composables/tokens verbatim
+(`Pill`, `Text` with `MaterialTheme.typography.bodySmall`/`TextPrimary`, the existing hint-text
+slot) — no new colors, shapes, or components were introduced for this feature.
+
+**Testing.** `OnboardingLogicTest` covers the pure gate function directly.
+`GameViewModelOnboardingTest` drives steps 3 and 5 through the real `GameViewModel` (not a mock):
+the auto-played hint fires without consuming a credit or calling `onHintUsed` when the flag is
+true and never fires when false; `isOnboardingHint` clears on the next real move or hint request;
+the callout fires exactly once at the threshold, never fires when ineligible, and is dismissed by
+either the next move or a real hint request; a match resets the no-match streak so the callout
+doesn't fire early. `LevelPackGeneratorTierTest` guards the tier-config split itself (level 1's
+`scrambleMoves=2`, levels 2-10 unchanged, every level 1-50 covered by exactly one tier).
+`SettingsRepositoryTest` covers `hasSeenOnboarding`'s persistence/no-clobber behavior and the
+`5.sqm`/`6.sqm` migration path from a real pre-existing v4 database.
+
 ## 9. Turkish-Language-Specific Design Notes
 
 - Dictionary must be curated (not raw TDK dump) to exclude words a casual

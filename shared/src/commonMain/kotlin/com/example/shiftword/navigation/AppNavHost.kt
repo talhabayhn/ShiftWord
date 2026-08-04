@@ -21,6 +21,7 @@ import com.example.shiftword.game.GameViewModel
 import com.example.shiftword.game.NoSoundEffects
 import com.example.shiftword.game.SoundEffectsFactory
 import com.example.shiftword.game.buildLevelSelectEntries
+import com.example.shiftword.game.isOnboardingLevel
 import com.example.shiftword.model.English
 import com.example.shiftword.model.LanguageProfiles
 import com.example.shiftword.model.Turkish
@@ -181,7 +182,18 @@ fun AppNavHost(
             }
             var attempt by remember { mutableIntStateOf(0) }
             val soundEnabled = remember { settingsRepository.isSoundEnabled() }
-            val winHighlightEnabled = remember { settingsRepository.isWinHighlightEnabled() }
+            // Onboarding (GAME_DESIGN.md §9h): read once, same "fresh remember per GAMEPLAY
+            // composition" pattern as soundEnabled/winHighlightEnabled above -- correct even
+            // across the flip below, since a stale local `false` is exactly what a still-onboarding
+            // player should keep seeing for this screen's whole lifetime (see isOnboardingLevel's
+            // and GameScreen's own doc comments for why the staleness here is deliberate, not a bug).
+            val hasSeenOnboarding = remember { settingsRepository.isHasSeenOnboarding() }
+            val onboardingLevel = isOnboardingLevel(hasSeenOnboarding, currentLevel.id)
+            // Onboarding step 4: forced ON for level 1 during onboarding regardless of the
+            // player's actual Settings toggle, WITHOUT touching the persisted value -- this `||`
+            // only affects the in-memory value threaded to GameScreen/GridBoard below,
+            // settingsRepository.setWinHighlightEnabled is never called from here.
+            val winHighlightEnabled = remember(onboardingLevel) { settingsRepository.isWinHighlightEnabled() || onboardingLevel }
             val fillerPool = remember(languageCode) { LanguageProfiles.forCode(languageCode).fillerPool }
 
             val viewModel = remember(currentLevel, attempt) {
@@ -196,6 +208,10 @@ fun AppNavHost(
                     initialHintCredits = settingsRepository.hintCreditsRemaining(),
                     onHintUsed = { settingsRepository.consumeHintCredit() },
                     reducedMotion = reducedMotionEnabled,
+                    // Onboarding steps 3/5: both gated by the same onboardingLevel flag GameScreen
+                    // uses for the win-highlight override and win explanation above.
+                    playOnboardingHintOnStart = onboardingLevel,
+                    hintButtonCalloutEligible = onboardingLevel,
                     // Level Select feature: no more levelRepository.insert(currentLevel) here --
                     // pack levels are already persisted at seed time, not on completion, unlike
                     // the old ad-hoc model.
@@ -207,6 +223,13 @@ fun AppNavHost(
                             bestMoves = movesUsed,
                             completedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
                         )
+                        // Onboarding step 6: flips exactly once, on the player's first ever level
+                        // completion -- by construction (Level Select's unlock logic keeps every
+                        // level but 1 locked until it has a completion record) that's always level
+                        // 1's completion while hasSeenOnboarding is still false, so no explicit
+                        // level-number check is needed here. Idempotent guard (only write if not
+                        // already true) keeps this a no-op on every completion after the first.
+                        if (!settingsRepository.isHasSeenOnboarding()) settingsRepository.setHasSeenOnboarding(true)
                     },
                 )
             }
@@ -249,6 +272,7 @@ fun AppNavHost(
                 // GameScreen's levelNumber doc comment for why.
                 levelNumber = currentLevel.id,
                 reducedMotion = reducedMotionEnabled,
+                isOnboardingLevel = onboardingLevel,
             )
         }
 

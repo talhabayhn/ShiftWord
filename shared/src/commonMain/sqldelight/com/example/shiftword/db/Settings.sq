@@ -25,6 +25,12 @@ import kotlin.Boolean;
 -- ARCHITECTURE.md §7a) -- both default 0/off so the existing animated, light-themed experience is
 -- unchanged for players who never open Settings. Shipped WITH their migration (3.sqm) in the same
 -- commit, per the note above.
+--
+-- hasSeenOnboarding (GAME_DESIGN.md §9h): a one-time, first-install-only flag -- not re-triggerable
+-- from Settings, no "replay onboarding" option. Defaults 0/false so a brand-new install always
+-- sees the onboarding experience once; every existing row this migrates (any pre-onboarding
+-- install) also lands on the DEFAULT (false) via 6.sqm, which is a deliberate, harmless side
+-- effect discussed in that migration's own comment, not an oversight.
 CREATE TABLE settings (
     id INTEGER NOT NULL PRIMARY KEY,
     soundEnabled INTEGER AS Boolean NOT NULL DEFAULT 1,
@@ -32,11 +38,12 @@ CREATE TABLE settings (
     winHighlightEnabled INTEGER AS Boolean NOT NULL DEFAULT 0,
     hintCredits INTEGER NOT NULL DEFAULT 3,
     reducedMotionEnabled INTEGER AS Boolean NOT NULL DEFAULT 0,
-    darkModeEnabled INTEGER AS Boolean NOT NULL DEFAULT 0
+    darkModeEnabled INTEGER AS Boolean NOT NULL DEFAULT 0,
+    hasSeenOnboarding INTEGER AS Boolean NOT NULL DEFAULT 0
 );
 
 selectSettings:
 SELECT * FROM settings WHERE id = 0;
 
 upsertSettings:
-INSERT OR REPLACE INTO settings(id, soundEnabled, language, winHighlightEnabled, hintCredits, reducedMotionEnabled, darkModeEnabled) VALUES (0, ?, ?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO settings(id, soundEnabled, language, winHighlightEnabled, hintCredits, reducedMotionEnabled, darkModeEnabled, hasSeenOnboarding) VALUES (0, ?, ?, ?, ?, ?, ?, ?);

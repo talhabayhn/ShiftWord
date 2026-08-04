@@ -1,0 +1,17 @@
+-- Migration to v6: wipes existing `level` and `progress` data ahead of level 1's dedicated
+-- onboarding-tuned regeneration (GAME_DESIGN.md §9g addendum, §9h). Level 1's `scrambleMoves` is
+-- changing from 5 (shared with the rest of the old 1-10 tier) to 2, carved out into its own
+-- single-level DifficultyTier entry (LevelPackGenerator.DEFAULT_DIFFICULTY_TIERS) -- this changes
+-- level 1's actual puzzle content (grid layout, move limit) under the same level number, exactly
+-- the same category of change 4.sqm made for the difficulty-tiering pass.
+--
+-- This is migration #3 in this project's "pre-launch progress reset" pattern (see GAME_DESIGN.md
+-- §9g's addendum for the full three-migration list and why each one reset rather than reconciled):
+-- pre-launch, no real user data exists to preserve, and a stale progress row recorded against
+-- level 1's OLD content would misdescribe the new content sharing that level number, not just go
+-- stale. Wiping both tables outright (rather than reconciling only level 1) is deliberate and
+-- consistent with 4.sqm: `LevelRepository.seedPackIfNeeded`'s idempotent-by-count-check
+-- (`countForLanguage(language) >= LEVEL_PACK_SIZE`) only re-seeds when the count drops below the
+-- full pack size, so a partial wipe (level 1 alone) would never actually trigger a reseed.
+DELETE FROM progress;
+DELETE FROM level;

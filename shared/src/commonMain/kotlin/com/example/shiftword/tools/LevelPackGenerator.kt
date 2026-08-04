@@ -87,9 +87,23 @@ data class DifficultyTier(
  * packing 4 words into a 5x5 grid's 10 rows/cols, not a bug -- see ALGORITHM_VALIDATION.md's R4
  * addendum and GeneratorMetricsTest's dedicated 5x5/4-word guards for the measured numbers this
  * combo actually ships with.
+ *
+ * Level 1 (GAME_DESIGN.md §9h, onboarding): split off from the rest of the original 1-10 tier as
+ * its own single-level range with a much tighter `scrambleMoves=2`, not just left as the first
+ * level of the normal 1-10 tier. Measured directly (`MoveLimitCalibrationTest`): the original
+ * tier-1 parameters (`scrambleMoves=5`, same grid size/word count) require ~4.9 real moves on
+ * average (1-9 range, 500-trial sample) to complete under optimal play -- indistinguishable in
+ * difficulty from an ordinary early-game puzzle, not a "close to solved already" teaching moment
+ * for a player who has never even performed the drag-to-shift gesture before. `scrambleMoves=2`
+ * measures ~2.8 moves on average (1-6 range, same sample size) -- the tightest of the three
+ * candidates checked, chosen deliberately since this is a single fixed-seed puzzle generated once
+ * for the whole pack (not per-install), so there is no need to hedge against a wide real-world
+ * distribution the way a per-tier average does. Levels 2-10 keep the original parameters
+ * unchanged -- this is a one-level-only carve-out, not a tier-wide difficulty change.
  */
 val DEFAULT_DIFFICULTY_TIERS = listOf(
-    DifficultyTier(1..10, gridSize = 4, wordsPerLevel = 2, scrambleMoves = 5),
+    DifficultyTier(1..1, gridSize = 4, wordsPerLevel = 2, scrambleMoves = 2),
+    DifficultyTier(2..10, gridSize = 4, wordsPerLevel = 2, scrambleMoves = 5),
     DifficultyTier(11..30, gridSize = 4, wordsPerLevel = 3, scrambleMoves = 5),
     DifficultyTier(31..40, gridSize = 5, wordsPerLevel = 3, scrambleMoves = 6),
     DifficultyTier(41..50, gridSize = 5, wordsPerLevel = 4, scrambleMoves = 7),

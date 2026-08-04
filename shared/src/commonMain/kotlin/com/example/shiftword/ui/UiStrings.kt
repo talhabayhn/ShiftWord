@@ -68,6 +68,12 @@ data class UiStrings(
     // UI layout pass (reference: "Mobil Uygulama UI İskeleti"): shown in GameScreen's title area,
     // where a static heading used to be -- now shows which pack level the player is on.
     val levelNumberLabel: (levelNumber: Int) -> String,
+    // Onboarding (GAME_DESIGN.md §9h), all one-time/first-install-only: the text bubble shown
+    // alongside the unprompted, auto-played first hint nudge; the one-time callout pointing at the
+    // Hint button; and the brief star/score explanation added to the first level-complete screen.
+    val onboardingSwipeHint: String,
+    val onboardingHintButtonCallout: String,
+    val onboardingWinExplanation: String,
 )
 
 val TurkishStrings = UiStrings(
@@ -112,6 +118,9 @@ val TurkishStrings = UiStrings(
     levelLocked = "Kilitli",
     backToLevelSelect = "← Seviyeler",
     levelNumberLabel = { levelNumber -> "Seviye $levelNumber" },
+    onboardingSwipeHint = "Bir satırı bu yönde kaydır",
+    onboardingHintButtonCallout = "Takıldın mı? Buraya dokun!",
+    onboardingWinExplanation = "Yıldızlar hamlelerini ne kadar verimli kullandığını gösterir, puan ise kelimeleri ne kadar hızlı bulduğunla artar.",
 )
 
 val EnglishStrings = UiStrings(
@@ -156,6 +165,9 @@ val EnglishStrings = UiStrings(
     levelLocked = "Locked",
     backToLevelSelect = "← Levels",
     levelNumberLabel = { levelNumber -> "Level $levelNumber" },
+    onboardingSwipeHint = "Swipe a row this direction",
+    onboardingHintButtonCallout = "Stuck? Tap here!",
+    onboardingWinExplanation = "Stars show how efficiently you used your moves, and score grows the faster you find each word.",
 )
 
 fun stringsForLanguage(code: String): UiStrings = if (code == "en") EnglishStrings else TurkishStrings
