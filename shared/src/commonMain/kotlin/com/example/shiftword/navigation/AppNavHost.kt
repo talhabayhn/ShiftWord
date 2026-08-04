@@ -19,8 +19,8 @@ import com.example.shiftword.data.SettingsRepository
 import com.example.shiftword.db.WordShiftDatabase
 import com.example.shiftword.game.GameViewModel
 import com.example.shiftword.game.NoSoundEffects
+import com.example.shiftword.game.SoundEffectsFactory
 import com.example.shiftword.game.buildLevelSelectEntries
-import com.example.shiftword.game.platformSoundEffects
 import com.example.shiftword.model.English
 import com.example.shiftword.model.LanguageProfiles
 import com.example.shiftword.model.Turkish
@@ -59,18 +59,43 @@ private object Routes {
  * already there rather than needing a lazy first-time seed.
  */
 @Composable
-fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
+fun AppNavHost(
+    database: WordShiftDatabase,
+    showDevTools: Boolean = false,
+    // Dark mode / Reduced Motion (added post-launch, GAME_DESIGN.md/ARCHITECTURE.md §7a):
+    // constructed by the caller (App.kt) rather than here, and the current
+    // darkModeEnabled/reducedMotionEnabled values are passed in rather than read fresh from the
+    // repository in each nested route -- both settings drive WordShiftTheme/
+    // ApplyStatusBarAppearance at App.kt's root, ABOVE this composable, so App.kt needs to own
+    // the live value itself; threading it back down here (rather than this composable keeping
+    // its own separate remembered copy) keeps a single source of truth instead of two states
+    // that could drift out of sync. onDarkModeEnabledChange/onReducedMotionEnabledChange both
+    // update that root state AND persist via settingsRepository (see App.kt) -- SETTINGS below
+    // only needs to call them, not duplicate either concern itself.
+    settingsRepository: SettingsRepository,
+    darkModeEnabled: Boolean,
+    onDarkModeEnabledChange: (Boolean) -> Unit,
+    reducedMotionEnabled: Boolean,
+    onReducedMotionEnabledChange: (Boolean) -> Unit,
+    // Real sound files (SOUND_SOURCING.md): constructed once by the platform entry point and
+    // passed all the way down from App.kt -- see SoundEffectsFactory's own doc comment for why
+    // this can't just be built here directly.
+    soundEffectsFactory: SoundEffectsFactory,
+) {
     val navController = rememberNavController()
     val dictionaryRepository = remember { DictionaryRepository(database).also { it.seedIfNeeded() } }
     val levelRepository = remember { LevelRepository(database) }
     val progressRepository = remember { ProgressRepository(database) }
-    val settingsRepository = remember { SettingsRepository(database) }
 
     remember {
         for (code in listOf(Turkish.code, English.code)) {
             levelRepository.seedPackIfNeeded(
                 language = code,
-                wordPool = dictionaryRepository.wordsOfLength(4, code).toList(),
+                // Unfiltered by length (not wordsOfLength(4, code)) -- GAME_DESIGN.md §5's
+                // difficulty tiers span both 4x4 and 5x5 grids (LevelPackGenerator's
+                // DEFAULT_DIFFICULTY_TIERS), so the pool must carry both 4- and 5-letter words or
+                // the 5x5 tiers (levels 31-50) would silently generate zero levels.
+                wordPool = dictionaryRepository.allWords(code).toList(),
                 fillerPool = LanguageProfiles.forCode(code).fillerPool,
             )
         }
@@ -163,13 +188,14 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
                 GameViewModel(
                     level = currentLevel,
                     fillerPool = fillerPool,
-                    soundEffects = if (soundEnabled) platformSoundEffects() else NoSoundEffects,
+                    soundEffects = if (soundEnabled) soundEffectsFactory.create() else NoSoundEffects,
                     // Feature 3: read fresh on every new GameViewModel (new level or replay
                     // attempt) -- this is what makes the pool GLOBAL rather than per-level: it
                     // reflects whatever was last persisted (including credits spent earlier this
                     // session), never resets just because a new level started.
                     initialHintCredits = settingsRepository.hintCreditsRemaining(),
                     onHintUsed = { settingsRepository.consumeHintCredit() },
+                    reducedMotion = reducedMotionEnabled,
                     // Level Select feature: no more levelRepository.insert(currentLevel) here --
                     // pack levels are already persisted at seed time, not on completion, unlike
                     // the old ad-hoc model.
@@ -222,6 +248,7 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
                 // that actually tracks the displayed level across "Sonraki Seviye" advances -- see
                 // GameScreen's levelNumber doc comment for why.
                 levelNumber = currentLevel.id,
+                reducedMotion = reducedMotionEnabled,
             )
         }
 
@@ -246,6 +273,10 @@ fun AppNavHost(database: WordShiftDatabase, showDevTools: Boolean = false) {
                     winHighlightEnabled = enabled
                     settingsRepository.setWinHighlightEnabled(enabled)
                 },
+                reducedMotionEnabled = reducedMotionEnabled,
+                onReducedMotionEnabledChange = onReducedMotionEnabledChange,
+                darkModeEnabled = darkModeEnabled,
+                onDarkModeEnabledChange = onDarkModeEnabledChange,
             )
         }
     }

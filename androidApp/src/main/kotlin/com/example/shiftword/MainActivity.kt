@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.shiftword.data.DatabaseDriverFactory
+import com.example.shiftword.game.SoundEffectsFactory
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -16,7 +17,11 @@ class MainActivity : ComponentActivity() {
         check(sharedSmokeTest() == "shared-ok")
 
         setContent {
-            App(showDevTools = BuildConfig.DEBUG, databaseDriverFactory = DatabaseDriverFactory(applicationContext))
+            App(
+                showDevTools = BuildConfig.DEBUG,
+                databaseDriverFactory = DatabaseDriverFactory(applicationContext),
+                soundEffectsFactory = SoundEffectsFactory(applicationContext),
+            )
         }
     }
 }
@@ -24,5 +29,8 @@ class MainActivity : ComponentActivity() {
 @Preview
 @Composable
 fun AppAndroidPreview() {
-    App(databaseDriverFactory = DatabaseDriverFactory(LocalContext.current))
+    App(
+        databaseDriverFactory = DatabaseDriverFactory(LocalContext.current),
+        soundEffectsFactory = SoundEffectsFactory(LocalContext.current),
+    )
 }

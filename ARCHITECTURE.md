@@ -390,6 +390,23 @@ level, not trusted to be already-clean source data.
 > reached" level and unlocked the entire pack) — fixed and verified
 > against multiple legacy rows on real hardware; see `GAME_DESIGN.md` §9e's
 > addendum for the full writeup.
+>
+> **Difficulty-tiered pack regeneration (`4.sqm`, see `GAME_DESIGN.md` §9g/§5):** `level` and
+> `progress` are both wiped (`DELETE FROM progress; DELETE FROM level;`) as part of this
+> migration, unlike `2.sqm`'s legacy rows which were kept and tagged. Reasoning is the opposite
+> of that earlier call and deliberately so: `2.sqm` kept old data because it was still valid
+> content just missing a `language` tag, whereas this migration's old `level` rows describe
+> puzzles (grid layout, target words, move limit) that literally no longer exist once the
+> tiered-generation parameters change — a kept `progress` row referencing them would misdescribe
+> the new content sharing that level number, not just be imprecise. Pre-launch, no real user data
+> to preserve, so a clean wipe was judged strictly better than reconciling against content that no
+> longer exists. Wiping `progress` also resets `ProgressRepository.totalWordsFound()`/
+> `currentDayStreak()` for free, since both are computed live from `progress` joined against
+> `level` rather than stored as separate counters — no separate aggregate-stats wipe was needed.
+> After migration, `LevelRepository.seedPackIfNeeded`'s existing idempotent-by-count-check
+> (`countForLanguage(language) >= LEVEL_PACK_SIZE`) sees 0 rows and re-seeds the pack with the new
+> tiered parameters on next app start — the migration only needs to clear the tables, not
+> re-trigger seeding itself.
 
 ## 10. Testing Strategy
 

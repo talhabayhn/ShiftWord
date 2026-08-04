@@ -237,6 +237,71 @@ class GeneratorMetricsTest {
         assertTrue(withIntersection >= trials * 45 / 100, "real-scale EN 5x5 intersection rate regressed below 45%: $withIntersection/$trials")
     }
 
+    // Levels-41-50 difficulty tier (GAME_DESIGN.md §5 scaling, shipped as-specced -- see that
+    // section's note): 5x5, 4 target words instead of 3. A 4th target changes the placement
+    // search's constraint density, so the 3-word real-scale guards above can't be assumed to
+    // cover it -- measured fresh here, same as MoveLimitCalibrationTest's dedicated 4-word
+    // variants, before this combo shipped.
+    //
+    // Measured 10.0% (TR) / 20.6% (EN) -- well below the 3-word 5x5 numbers (42.2%/55.2%) and
+    // below every other guard's 25-45% band. Decision (not a bug, not deferred like
+    // letter-rarity): shipped as-is. This is judged an inherent geometric ceiling -- 4 words
+    // competing for a 5x5 grid's 10 rows/columns leaves mathematically less room per word than
+    // the 3-word tier, not something pool-selection can fix -- rather than investing in
+    // intersection-biasing (unscoped, uncertain payoff, same category already deferred for
+    // letter-rarity). These guards are still added, calibrated to THIS combo's own measured
+    // reality with headroom below it (not the usual 25-45% band), so a future regression that
+    // breaks even this lower bar still gets caught rather than this combo shipping with no
+    // guard at all.
+
+    @Test
+    fun intersectionRateAt5x5With4TargetsRealTurkishDictionary() {
+        val pool = CURATED_DICTIONARY_SEED_WORDS.filter { it.length == 5 }
+        val rng = Random(12)
+        val trials = 500
+        var withIntersection = 0
+        repeat(trials) {
+            val targets = pool.shuffled(rng).take(4)
+            val result = generateSolvedGrid(5, targets, DEFAULT_FILLER_POOL, targets.toSet(), rng)
+            if (result != null) {
+                val (_, placements) = result
+                if (placements.sumOf { it.intersections } > 0) withIntersection++
+            }
+        }
+        println(
+            "[metrics] 5x5 intersection rate, 4 targets (real TR ${pool.size}-word curated dictionary, $trials trials): " +
+                "$withIntersection/$trials (${withIntersection * 100.0 / trials}%)",
+        )
+        // Measured 10.0% (50/500) at real scale -- guard at 5%, with headroom below that (not the
+        // 25%+ band used elsewhere in this file; see the tier note above for why this combo's
+        // ceiling is inherently lower).
+        assertTrue(withIntersection >= trials * 5 / 100, "real-scale TR 5x5/4-word intersection rate regressed below 5%: $withIntersection/$trials")
+    }
+
+    @Test
+    fun intersectionRateAt5x5With4TargetsRealEnglishDictionary() {
+        val pool = CURATED_DICTIONARY_SEED_WORDS_EN.filter { it.length == 5 }
+        val rng = Random(13)
+        val trials = 500
+        var withIntersection = 0
+        repeat(trials) {
+            val targets = pool.shuffled(rng).take(4)
+            val result = generateSolvedGrid(5, targets, com.example.shiftword.model.English.fillerPool, targets.toSet(), rng)
+            if (result != null) {
+                val (_, placements) = result
+                if (placements.sumOf { it.intersections } > 0) withIntersection++
+            }
+        }
+        println(
+            "[metrics] 5x5 intersection rate, 4 targets (real EN ${pool.size}-word curated dictionary, $trials trials): " +
+                "$withIntersection/$trials (${withIntersection * 100.0 / trials}%)",
+        )
+        // Measured 20.6% (103/500) at real scale -- guard at 10%, with headroom below that (not
+        // the 25%+ band used elsewhere in this file; see the tier note above for why this combo's
+        // ceiling is inherently lower).
+        assertTrue(withIntersection >= trials * 10 / 100, "real-scale EN 5x5/4-word intersection rate regressed below 10%: $withIntersection/$trials")
+    }
+
     @Test
     fun dictionaryScalePerformanceWith3000SyntheticWords() {
         // ALGORITHM_VALIDATION.md R6 claims "simulated at 3,000 words, 30 generations in

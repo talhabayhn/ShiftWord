@@ -20,7 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.shiftword.ui.theme.DustyLavender
-import com.example.shiftword.ui.theme.SurfaceWhite
+import com.example.shiftword.ui.theme.OnAccent
 import com.example.shiftword.ui.theme.TextPrimary
 
 @Composable
@@ -36,6 +36,12 @@ fun SettingsScreen(
     // Feature 1B: opt-in, off-by-default drag-time win highlight.
     winHighlightEnabled: Boolean = false,
     onWinHighlightEnabledChange: (Boolean) -> Unit = {},
+    // Accessibility/appearance settings (GAME_DESIGN.md, ARCHITECTURE.md §7a): both off by
+    // default, matching SettingsRepository's column defaults.
+    reducedMotionEnabled: Boolean = false,
+    onReducedMotionEnabledChange: (Boolean) -> Unit = {},
+    darkModeEnabled: Boolean = false,
+    onDarkModeEnabledChange: (Boolean) -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -58,7 +64,7 @@ fun SettingsScreen(
             Switch(
                 checked = soundEnabled,
                 onCheckedChange = onSoundEnabledChange,
-                colors = SwitchDefaults.colors(checkedThumbColor = SurfaceWhite, checkedTrackColor = DustyLavender),
+                colors = SwitchDefaults.colors(checkedThumbColor = OnAccent, checkedTrackColor = DustyLavender),
             )
         }
 
@@ -93,7 +99,33 @@ fun SettingsScreen(
             Switch(
                 checked = winHighlightEnabled,
                 onCheckedChange = onWinHighlightEnabledChange,
-                colors = SwitchDefaults.colors(checkedThumbColor = SurfaceWhite, checkedTrackColor = DustyLavender),
+                colors = SwitchDefaults.colors(checkedThumbColor = OnAccent, checkedTrackColor = DustyLavender),
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(strings.reducedMotionLabel, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+            Switch(
+                checked = reducedMotionEnabled,
+                onCheckedChange = onReducedMotionEnabledChange,
+                colors = SwitchDefaults.colors(checkedThumbColor = OnAccent, checkedTrackColor = DustyLavender),
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(strings.darkModeLabel, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+            Switch(
+                checked = darkModeEnabled,
+                onCheckedChange = onDarkModeEnabledChange,
+                colors = SwitchDefaults.colors(checkedThumbColor = OnAccent, checkedTrackColor = DustyLavender),
             )
         }
     }
@@ -104,7 +136,7 @@ private fun LanguageOption(label: String, selected: Boolean, onClick: () -> Unit
     if (selected) {
         Button(
             onClick = onClick,
-            colors = ButtonDefaults.buttonColors(containerColor = DustyLavender, contentColor = SurfaceWhite),
+            colors = ButtonDefaults.buttonColors(containerColor = DustyLavender, contentColor = OnAccent),
         ) { Text(label) }
     } else {
         OutlinedButton(onClick = onClick) { Text(label, color = TextPrimary) }

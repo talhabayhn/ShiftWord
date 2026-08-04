@@ -39,7 +39,16 @@ class GameViewModel(
     // call sites/tests are unaffected.
     private val fillerPool: String = DEFAULT_FILLER_POOL,
     // Overridable so tests can run with no real-time delay while production keeps a felt pause.
+    // Reduced Motion setting (GAME_DESIGN.md): when [reducedMotion] is true, [REDUCED_EXPLOSION_DELAY_MS]
+    // is used instead, regardless of this value -- see processShiftedGrid.
     private val explosionDelayMs: Long = 350L,
+    // Reduced Motion setting: off by default, matching SettingsRepository's column default. Also
+    // threaded down to GridBoard by the caller (GameScreen/AppNavHost) for the animation-duration
+    // side of this same setting -- this constructor param only controls the cascade *pacing*
+    // (the felt pause between an explosion and its refill), which lives in this class rather than
+    // GridBoard because it's a timing decision about game state (explodingCellIds), not a visual
+    // animation-spec detail.
+    private val reducedMotion: Boolean = false,
     // Defaults to silent — real sound is opt-in (app shell passes platformSoundEffects()), see
     // NoSoundEffects's doc comment for why the default must never touch platform audio APIs.
     private val soundEffects: SoundEffects = NoSoundEffects,
@@ -232,7 +241,7 @@ class GameViewModel(
 
         val explodingIds = matches.flatMap { (_, positions) -> positions.map { (r, c) -> shifted.cells[r][c].id } }.toSet()
         _uiState.value = state.copy(grid = shifted, explodingCellIds = explodingIds, hintMove = null)
-        delay(explosionDelayMs)
+        delay(if (reducedMotion) REDUCED_EXPLOSION_DELAY_MS else explosionDelayMs)
 
         // P3 real-device playtesting finding: resolveCascade's exhaustive/random-sampling
         // reachability search (the R4-addendum machinery guaranteeing every remaining target
@@ -288,6 +297,14 @@ class GameViewModel(
             explodingCellIds = emptySet(),
             hintMove = null,
         )
+        // Win/loss sound: fired exactly at the transition (isBusy() already guarantees commit()
+        // is never re-entered once isWon/isLost is true, so seeing either flag true here always
+        // means it just became true this call, never a repeat). Same soundDispatcher threading
+        // discipline as playShift/playCascadeStep -- see soundDispatcher's own doc comment for
+        // why this must stay off both Main and hintDispatcher.
+        if (isWon) viewModelScope.launch(soundDispatcher) { soundEffects.playLevelComplete() }
+        if (isLost) viewModelScope.launch(soundDispatcher) { soundEffects.playGameOver() }
+
         if (isWon) {
             // P3 audit finding (third instance of the same pattern hint's BFS and cascade's
             // reachability search already hit): onLevelCompleted is a caller-supplied callback --
@@ -302,6 +319,13 @@ class GameViewModel(
     }
 
     companion object {
+        // Reduced Motion setting: the felt pause between an explosion and its cascade
+        // resolving/refilling, used instead of [explosionDelayMs] when [reducedMotion] is true --
+        // short-but-nonzero (not 0L) so the player can still register "something got cleared"
+        // before the refill lands, matching GridBoard's REDUCED_EXPLODE_DURATION_MS reasoning
+        // (near-instant, not literally instant).
+        private const val REDUCED_EXPLOSION_DELAY_MS = 60L
+
         // TEMPORARY (Task 3): set back to false to restore normal hint-credit gating -- see
         // requestHint's doc comment at the check site for what this bypasses and why it's safe
         // (SettingsRepository's hintCredits infrastructure itself is untouched). While true, this

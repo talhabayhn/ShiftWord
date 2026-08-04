@@ -30,12 +30,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.example.shiftword.domain.apply
+import com.example.shiftword.domain.wouldCompleteTarget
 import com.example.shiftword.model.Axis
 import com.example.shiftword.model.Grid
 import com.example.shiftword.model.Move
 import com.example.shiftword.ui.theme.DustyLavender
+import com.example.shiftword.ui.theme.GridShadowColor
 import com.example.shiftword.ui.theme.LavenderTileTint
+import com.example.shiftword.ui.theme.LocalDarkTheme
 import com.example.shiftword.ui.theme.SageGreen
 import com.example.shiftword.ui.theme.SurfaceWhite
 import com.example.shiftword.ui.theme.TextPrimary
@@ -56,6 +58,17 @@ private val DEFAULT_CELL_SIZE = 56.dp
 private val SNAP_SPRING = spring<Offset>(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
 private const val EXPLODE_DURATION_MS = 300
 private const val HINT_NUDGE_DURATION_MS = 260
+
+// Reduced Motion setting (GAME_DESIGN.md accessibility/performance addendum): near-instant, not
+// literally 0ms -- a 0ms tween can skip Compose's animation callback entirely on some frame
+// timings, which has previously caused this project trouble with state that's supposed to be
+// driven by an animation's completion (see hintOffset's snapTo/animateTo sequencing below). A
+// short-but-nonzero duration keeps the same code path running, just with much less felt motion,
+// which is the actual intent ("meaningfully less motion, not just slightly faster") -- these are
+// still 4-5x shorter than their normal counterparts, not just marginally faster.
+private const val REDUCED_EXPLODE_DURATION_MS = 60
+private const val REDUCED_HINT_NUDGE_DURATION_MS = 60
+private val REDUCED_SNAP_SPRING = spring<Offset>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh)
 
 /**
  * Renders [grid] and turns row/column drags into committed [Move]s. Each cell is wrapped in
@@ -96,10 +109,20 @@ fun GridBoard(
     // (GameScreen computes this via BoxWithConstraints), not a fixed constant -- see
     // DEFAULT_CELL_SIZE's doc comment for why 56.dp alone was never the intended final size.
     cellSize: Dp = DEFAULT_CELL_SIZE,
+    // Reduced Motion setting (GAME_DESIGN.md): off by default, matching SettingsRepository's
+    // column default -- the existing animated experience stays the default for existing users.
+    // When true: cell-snap uses a stiff non-bouncy spring instead of SNAP_SPRING, the explosion
+    // scale/alpha and hint-nudge tweens run at REDUCED_*_DURATION_MS instead of their normal
+    // duration, and the wrap-preview ghost tile (Feature 1A) appears at full opacity immediately
+    // instead of fading in over the first cell-width of drag travel.
+    reducedMotion: Boolean = false,
 ) {
     val size = grid.size
     val density = LocalDensity.current
     val cellSizePx = with(density) { cellSize.toPx() }
+    val explodeDurationMs = if (reducedMotion) REDUCED_EXPLODE_DURATION_MS else EXPLODE_DURATION_MS
+    val hintNudgeDurationMs = if (reducedMotion) REDUCED_HINT_NUDGE_DURATION_MS else HINT_NUDGE_DURATION_MS
+    val snapSpring = if (reducedMotion) REDUCED_SNAP_SPRING else SNAP_SPRING
 
     var dragAxis by remember { mutableStateOf<Axis?>(null) }
     var dragIndex by remember { mutableStateOf(0) }
@@ -124,8 +147,8 @@ fun GridBoard(
             hintAnimIndex = move.index
             val nudgeDistancePx = cellSizePx * 0.55f * if (move.forward) 1f else -1f
             hintOffset.snapTo(0f)
-            hintOffset.animateTo(nudgeDistancePx, tween(HINT_NUDGE_DURATION_MS))
-            hintOffset.animateTo(0f, tween(HINT_NUDGE_DURATION_MS))
+            hintOffset.animateTo(nudgeDistancePx, tween(hintNudgeDurationMs))
+            hintOffset.animateTo(0f, tween(hintNudgeDurationMs))
             hintAnimAxis = null
         }
     }
@@ -144,25 +167,26 @@ fun GridBoard(
     // recompute every recomposition at this grid's scale (4x4/5x5), same as the rest of this
     // composable's per-frame drag math. Also lights up during the hint animation (effectiveAxis),
     // which doubles as a subtle confirmation that the suggested move does complete a word.
-    val wouldWin = run {
-        val axis = effectiveAxis
-        if (!winHighlightEnabled || axis == null) return@run false
-        val steps = (effectiveOffsetPx / cellSizePx).roundToInt()
-        if (steps == 0) return@run false
-        val shifted = grid.apply(Move(axis, effectiveIndex, forward = steps > 0))
-        val resultWord = when (axis) {
-            Axis.Row -> shifted.cells[effectiveIndex].joinToString("") { it.letter.toString() }
-            Axis.Col -> (0 until size).joinToString("") { r -> shifted.cells[r][effectiveIndex].letter.toString() }
-        }
-        resultWord in targetWords
-    }
+    val wouldWin = winHighlightEnabled &&
+        wouldCompleteTarget(grid, effectiveAxis, effectiveIndex, effectiveOffsetPx, cellSizePx, targetWords)
 
     Box(
         modifier = modifier
             .size(cellSize * size)
             // One soft shadow under the whole grid, not per-tile heavy shadows, per the
             // gameplay mockup — a low elevation keeps it subtle rather than a hard drop shadow.
-            .shadow(elevation = 6.dp, shape = RoundedCornerShape(TileCornerRadius), ambientColor = WarmSand, spotColor = WarmSand)
+            // Dark mode (GAME_DESIGN.md/ARCHITECTURE.md §7a): GridShadowColor switches from the
+            // light warm-sand halo to a translucent black (a light color would read as a glow,
+            // not a shadow, against a dark page) and elevation bumps up slightly -- a black
+            // shadow against a near-black background is inherently more subtle than the light
+            // halo is against a light page, so it needs the extra intensity to still read as
+            // elevation at all.
+            .shadow(
+                elevation = if (LocalDarkTheme.current) 10.dp else 6.dp,
+                shape = RoundedCornerShape(TileCornerRadius),
+                ambientColor = GridShadowColor,
+                spotColor = GridShadowColor,
+            )
             .pointerInput(size, sessionKey) {
                 detectDragGestures(
                     onDragStart = { offset ->
@@ -221,18 +245,18 @@ fun GridBoard(
                         if (isLiveDraggingThis) {
                             position.snapTo(Offset(targetX, targetY))
                         } else {
-                            position.animateTo(Offset(targetX, targetY), SNAP_SPRING)
+                            position.animateTo(Offset(targetX, targetY), snapSpring)
                         }
                     }
 
                     val isExploding = cell.id in explodingCellIds
                     val explodeScale by animateFloatAsState(
                         targetValue = if (isExploding) 0f else 1f,
-                        animationSpec = tween(durationMillis = EXPLODE_DURATION_MS),
+                        animationSpec = tween(durationMillis = explodeDurationMs),
                     )
                     val explodeAlpha by animateFloatAsState(
                         targetValue = if (isExploding) 0f else 1f,
-                        animationSpec = tween(durationMillis = EXPLODE_DURATION_MS),
+                        animationSpec = tween(durationMillis = explodeDurationMs),
                     )
 
                     val tileShape = RoundedCornerShape(TileCornerRadius)
@@ -282,7 +306,11 @@ fun GridBoard(
             }
             val ghostX = ghostBaseX + if (ghostAxis == Axis.Row) effectiveOffsetPx else 0f
             val ghostY = ghostBaseY + if (ghostAxis == Axis.Col) effectiveOffsetPx else 0f
-            val ghostAlpha = (abs(effectiveOffsetPx) / cellSizePx).coerceIn(0f, 1f)
+            // Reduced Motion: skip the fade-in entirely (Feature 1A is otherwise always-on, see
+            // its doc comment above) -- the ghost tile appears at full opacity as soon as the
+            // drag starts, rather than the alpha gradually tracking drag distance over the first
+            // cell-width of travel.
+            val ghostAlpha = if (reducedMotion) 1f else (abs(effectiveOffsetPx) / cellSizePx).coerceIn(0f, 1f)
             val ghostTileShape = RoundedCornerShape(TileCornerRadius)
 
             Box(

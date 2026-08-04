@@ -41,6 +41,58 @@ class SettingsRepositoryTest {
         assertEquals(Turkish.code, repository.language())
         assertFalse(repository.isWinHighlightEnabled(), "win highlight is a real difficulty lever -- must default off")
         assertEquals(DEFAULT_HINT_CREDITS, repository.hintCreditsRemaining())
+        assertFalse(repository.isReducedMotionEnabled(), "reduced motion must default off -- the existing animated experience stays default")
+        assertFalse(repository.isDarkModeEnabled(), "dark mode must default off -- light theme stays default")
+    }
+
+    @Test
+    fun settingReducedMotionEnabledDoesNotClobberOtherSettings() {
+        repository.setSoundEnabled(false)
+        repository.setLanguage(English.code)
+        repository.setWinHighlightEnabled(true)
+        repository.consumeHintCredit()
+        repository.setDarkModeEnabled(true)
+
+        repository.setReducedMotionEnabled(true)
+
+        assertTrue(repository.isReducedMotionEnabled())
+        assertFalse(repository.isSoundEnabled(), "toggling reduced motion must not reset sound back to its column default")
+        assertEquals(English.code, repository.language(), "toggling reduced motion must not reset language back to its column default")
+        assertTrue(repository.isWinHighlightEnabled(), "toggling reduced motion must not reset win highlight back to its column default")
+        assertEquals(DEFAULT_HINT_CREDITS - 1, repository.hintCreditsRemaining(), "toggling reduced motion must not reset hint credits back to their column default")
+        assertTrue(repository.isDarkModeEnabled(), "toggling reduced motion must not reset dark mode back to its column default")
+    }
+
+    @Test
+    fun settingDarkModeEnabledDoesNotClobberOtherSettings() {
+        repository.setSoundEnabled(false)
+        repository.setLanguage(English.code)
+        repository.setWinHighlightEnabled(true)
+        repository.consumeHintCredit()
+        repository.setReducedMotionEnabled(true)
+
+        repository.setDarkModeEnabled(true)
+
+        assertTrue(repository.isDarkModeEnabled())
+        assertFalse(repository.isSoundEnabled(), "toggling dark mode must not reset sound back to its column default")
+        assertEquals(English.code, repository.language(), "toggling dark mode must not reset language back to its column default")
+        assertTrue(repository.isWinHighlightEnabled(), "toggling dark mode must not reset win highlight back to its column default")
+        assertEquals(DEFAULT_HINT_CREDITS - 1, repository.hintCreditsRemaining(), "toggling dark mode must not reset hint credits back to their column default")
+        assertTrue(repository.isReducedMotionEnabled(), "toggling dark mode must not reset reduced motion back to its column default")
+    }
+
+    @Test
+    fun settingOtherSettingsDoesNotClobberAPreviouslySetReducedMotionOrDarkMode() {
+        repository.setReducedMotionEnabled(true)
+        repository.setDarkModeEnabled(true)
+
+        repository.setSoundEnabled(false)
+        repository.setLanguage(English.code)
+        repository.setWinHighlightEnabled(true)
+        repository.consumeHintCredit()
+
+        assertTrue(repository.isReducedMotionEnabled(), "toggling other settings must not reset reduced motion back to its column default")
+        assertTrue(repository.isDarkModeEnabled(), "toggling other settings must not reset dark mode back to its column default")
     }
 
     @Test
@@ -168,19 +220,70 @@ class SettingsRepositoryTest {
      * installs rather than only working for brand-new ones (which every other test in this file,
      * via WordShiftDatabase.Schema.create(), would never have caught).
      */
+    // 2.sqm (the Level Select migration, v2->v3) touches `level`/`progress`, not just `settings` --
+    // any test that runs Schema.migrate() across version 2 needs those tables to already exist in
+    // their pre-2.sqm shape (no `language` column yet), or 2.sqm's own ALTER/rebuild statements
+    // fail with "no such table: level" against a synthetic settings-only database. Real devices
+    // always have all three tables (Schema.create() makes them together), so this mirrors that.
+    private fun createPreLevelSelectLevelAndProgressTables(driver: JdbcSqliteDriver) {
+        driver.execute(
+            null,
+            "CREATE TABLE level (id INTEGER NOT NULL PRIMARY KEY, gridSize INTEGER NOT NULL, initialCells TEXT NOT NULL, targetWords TEXT NOT NULL, moveLimit INTEGER NOT NULL, minMovesToSolve INTEGER NOT NULL, minMovesIsExact INTEGER NOT NULL)",
+            0,
+        )
+        driver.execute(
+            null,
+            "CREATE TABLE progress (levelId INTEGER NOT NULL PRIMARY KEY, stars INTEGER NOT NULL, bestMoves INTEGER NOT NULL, completedAt INTEGER NOT NULL)",
+            0,
+        )
+    }
+
     @Test
     fun migratingFromTheOriginalV1SchemaAddsBothNewColumnsWithoutLosingExistingData() {
         val migrationDriver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         migrationDriver.execute(null, "CREATE TABLE settings (id INTEGER NOT NULL PRIMARY KEY, soundEnabled INTEGER NOT NULL DEFAULT 1, language TEXT NOT NULL DEFAULT 'tr')", 0)
         migrationDriver.execute(null, "INSERT INTO settings(id, soundEnabled, language) VALUES (0, 0, 'en')", 0)
+        createPreLevelSelectLevelAndProgressTables(migrationDriver)
 
-        WordShiftDatabase.Schema.migrate(migrationDriver, 1, 2)
+        WordShiftDatabase.Schema.migrate(migrationDriver, 1, 4)
 
         val migratedRepository = SettingsRepository(createDatabase(migrationDriver))
         assertFalse(migratedRepository.isSoundEnabled(), "pre-existing soundEnabled value must survive the migration")
         assertEquals(English.code, migratedRepository.language(), "pre-existing language value must survive the migration")
         assertFalse(migratedRepository.isWinHighlightEnabled(), "winHighlightEnabled must land with its DEFAULT value on migrated rows, not crash or come back null")
         assertEquals(DEFAULT_HINT_CREDITS, migratedRepository.hintCreditsRemaining(), "hintCredits must land with its DEFAULT value on migrated rows, not crash or come back 0")
+        assertFalse(migratedRepository.isReducedMotionEnabled(), "reducedMotionEnabled must land with its DEFAULT value on migrated rows, not crash or come back null")
+        assertFalse(migratedRepository.isDarkModeEnabled(), "darkModeEnabled must land with its DEFAULT value on migrated rows, not crash or come back null")
+        migrationDriver.close()
+    }
+
+    /**
+     * Same class of real-device risk as the v1->v2 migration test above (3.sqm's own doc comment
+     * links back to this), but starting from the v2 schema (post-winHighlight/hintCredits,
+     * pre-reducedMotion/darkMode) an already-installed device would actually have today, not a
+     * from-scratch v1 table -- proves 3.sqm's two ALTER TABLE statements apply cleanly on top of
+     * an already-migrated real column set, not just on the original v1 shape.
+     */
+    @Test
+    fun migratingFromTheV2SchemaAddsReducedMotionAndDarkModeWithoutLosingExistingData() {
+        val migrationDriver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        migrationDriver.execute(
+            null,
+            "CREATE TABLE settings (id INTEGER NOT NULL PRIMARY KEY, soundEnabled INTEGER NOT NULL DEFAULT 1, language TEXT NOT NULL DEFAULT 'tr', winHighlightEnabled INTEGER NOT NULL DEFAULT 0, hintCredits INTEGER NOT NULL DEFAULT 3)",
+            0,
+        )
+        migrationDriver.execute(null, "INSERT INTO settings(id, soundEnabled, language, winHighlightEnabled, hintCredits) VALUES (0, 0, 'en', 1, 1)", 0)
+        createPreLevelSelectLevelAndProgressTables(migrationDriver)
+
+        WordShiftDatabase.Schema.migrate(migrationDriver, 2, 4)
+
+        val migratedRepository = SettingsRepository(createDatabase(migrationDriver))
+        assertFalse(migratedRepository.isSoundEnabled(), "pre-existing soundEnabled value must survive the migration")
+        assertEquals(English.code, migratedRepository.language(), "pre-existing language value must survive the migration")
+        assertTrue(migratedRepository.isWinHighlightEnabled(), "pre-existing winHighlightEnabled value must survive the migration")
+        assertEquals(1, migratedRepository.hintCreditsRemaining(), "pre-existing hintCredits value must survive the migration")
+        assertFalse(migratedRepository.isReducedMotionEnabled(), "reducedMotionEnabled must land with its DEFAULT value on migrated rows, not crash or come back null")
+        assertFalse(migratedRepository.isDarkModeEnabled(), "darkModeEnabled must land with its DEFAULT value on migrated rows, not crash or come back null")
         migrationDriver.close()
     }
 }

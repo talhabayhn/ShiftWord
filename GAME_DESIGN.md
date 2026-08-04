@@ -54,13 +54,41 @@ see open design questions below).
 
 ## 5. Difficulty Progression
 
-| Lever | Early levels | Later levels |
+**Wired into pack generation as of the difficulty-tiering pass** (`LevelPackGenerator.
+DEFAULT_DIFFICULTY_TIERS`, `LevelRepository.seedPackIfNeeded`) — before this, every level in the
+50-level pack used the same fixed parameters regardless of position; the curve below was design
+intent that was never actually connected to the persisted-pack model (Phase 9e). Four tiers, each
+escalating grid size, target word count, and move-limit tightness cumulatively:
+
+| Levels | Grid size | Target words | scrambleMoves |
+|---|---|---|---|
+| 1–10 | 4×4 | 2 | 5 |
+| 11–30 | 4×4 | 3 | 5 |
+| 31–40 | 5×5 | 3 | 6 |
+| 41–50 | 5×5 | 4 | 7 |
+
+**Word overlap density does NOT increase monotonically across tiers — this is a correction to
+this section's earlier (aspirational, never-measured) claim that density rises with every tier.**
+Measured real-scale intersection rates (`GeneratorMetricsTest`, both curated dictionaries):
+
+| Tier | TR | EN |
 |---|---|---|
-| Grid size | 4×4 | 5×5 |
-| Target word count | 2 | 3+ |
-| Move limit tightness | Generous buffer | Buffer shrinks toward optimal |
-| Word overlap in grid | Minimal intersection | Dense, crossword-style intersecting placement |
-| Letter pool | Common, high-frequency letters | Rarer letters (Ç, Ğ, Ş, Ü) introduced |
+| 11–30 (4×4, 3 words) | 30.4% | 29.4% |
+| 31–40 (5×5, 3 words) | 42.2% | 55.2% |
+| 41–50 (5×5, 4 words) | 10.0% | 20.6% |
+
+The 41–50 drop is judged an inherent geometric ceiling — 4 target words competing for a 5×5
+grid's 10 rows/columns leaves mathematically less room per word than the 3-word tier, not a
+fixable placement-algorithm bug — and was shipped as-is rather than investing in unscoped,
+uncertain-payoff pool-selection biasing (see `ALGORITHM_VALIDATION.md`'s R4 addendum and
+`GeneratorMetricsTest`'s dedicated 5×5/4-word guards, calibrated to this tier's own lower measured
+reality rather than the ~25-45% band the other guards use). Difficulty at 41–50 is still real and
+perceptible — it comes from grid size, word count, and move-limit tightness, just not from rising
+crossword density on top of those.
+
+**Letter pool** (common → rarer letters, e.g. Ç, Ğ, Ş, Ü) remains a **deferred** lever — no
+frequency/rarity-aware pool filtering exists yet; the tiers above scale grid size, word count, and
+move-limit tightness only.
 
 ## 6. Scoring & Progression
 
@@ -236,6 +264,66 @@ by bounding that calculation to `1..packSize` before taking the max, so out-of-r
 are ignored regardless of how many exist or how large they are. Verified against a crafted
 pre-pack-model database with three distinct legacy rows migrated on real hardware (SM-A115F), and
 covered by `LevelSelectLogicTest`'s single- and multi-legacy-row cases.
+
+## 9f. Reduced Motion (added post-launch)
+
+A new Settings toggle (`SettingsRepository.isReducedMotionEnabled`/`setReducedMotionEnabled`,
+persisted the same read-then-`INSERT OR REPLACE` way as every other setting — see Settings.sq),
+**off by default** so the existing animated experience stays the default for existing users. This
+is an accessibility/performance option, not a difficulty lever like Feature 1B's win highlight —
+it changes how much motion the player sees, not what information is available to them.
+
+When ON, four animation surfaces get meaningfully less motion (not just faster — see each site's
+own doc comment in `GridBoard.kt`/`GameViewModel.kt` for the exact treatment):
+
+- **Ghost-preview fade-in (Feature 1A):** normally fades in over the first cell-width of drag
+  travel; with reduced motion, appears at full opacity immediately once a drag starts on that
+  axis, skipping the fade entirely.
+- **Win-highlight (Feature 1B), if also enabled:** already an instant state-driven color swap
+  (background/border flip the moment `wouldWin` becomes true), not a duration-based animation —
+  reduced motion has nothing further to do here, it was never "more motion" than a state change
+  to begin with.
+- **Hint-nudge animation (§7's hint presentation):** the automatic shift-and-back nudge runs at a
+  much shorter tween duration (`REDUCED_HINT_NUDGE_DURATION_MS`, ~60ms vs. the normal ~260ms per
+  direction) instead of being skipped outright — kept non-zero so the suggested row/column is
+  still visibly identified, just briefly, rather than disappearing as a silent instant jump.
+- **Explosion/gravity/cascade animation:** the per-cell scale/alpha "pop" (`GridBoard.kt`) and the
+  cascade's own felt pause between an explosion and its refill (`GameViewModel.processShiftedGrid`)
+  both drop to a short, non-zero duration (~60ms) instead of their normal ~300-350ms. Non-zero
+  for the same reason as the hint nudge above: an instant (0ms) transition risks Compose skipping
+  the animation callback on some frame timings, and — separately — a player still needs to
+  perceive "this got cleared, then this got refilled" as two distinct moments, not one
+  indistinguishable flash.
+- **Tile snap-back spring (drag release):** normally a bouncy spring
+  (`Spring.DampingRatioMediumBouncy`); with reduced motion, a stiff non-bouncy spring instead, so
+  a released tile settles into place quickly without any visible overshoot/wobble.
+
+Not touched by this setting: the splash screen's own fixed-duration display (not an animation to
+begin with) and screen-to-screen navigation transitions (Navigation Compose's own defaults,
+outside this app's animation code).
+
+## 9g. Difficulty-Tiered Pack Regeneration & Progress Reset (added post-launch)
+
+**Finding:** a real-device playtest report that "difficulty doesn't increase across the pack"
+led to the investigation documented in §5 above — confirmed that `LevelPackGenerator`/
+`LevelRepository.seedPackIfNeeded` had never actually been wired to vary generation parameters by
+level number; every one of the 50 levels used the same fixed grid size/word count/scramble
+regardless of position. §5's difficulty curve is now wired in via
+`LevelPackGenerator.DEFAULT_DIFFICULTY_TIERS`.
+
+**Progress wipe (deliberate, one-time):** regenerating the pack with new per-tier parameters
+changes every level's content (grid layout, target words, move limit) except level identity
+(number). Existing per-level progress (`progress` table: stars, best-moves) and the derived
+global aggregates (`ProgressRepository.totalWordsFound()`/`currentDayStreak()`, both computed
+live from `progress` + `level` — see `ARCHITECTURE.md` §9, no separate stored columns to wipe
+independently) are wiped alongside the level table itself, migrated via `4.sqm`. **Decision:**
+this is pre-launch — there is no real user data to preserve — and a stale star rating recorded
+against a puzzle that no longer exists in that form (different layout/target words under the same
+level number) would be actively misleading to keep around rather than merely stale. A fresh,
+consistent 0-stars/level-1-unlocked start is judged strictly better than reconciling or
+preserving orphaned progress against regenerated content. This reasoning is one-time, tied to
+this specific regeneration — it does not establish a standing policy of wiping progress on future
+content changes; see `4.sqm`'s own comment and `ARCHITECTURE.md` §9 for the migration mechanics.
 
 ## 9. Turkish-Language-Specific Design Notes
 
