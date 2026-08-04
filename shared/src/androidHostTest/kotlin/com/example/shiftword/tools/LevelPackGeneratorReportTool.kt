@@ -1,9 +1,12 @@
 package com.example.shiftword.tools
 
 import com.example.shiftword.data.CURATED_DICTIONARY_SEED_WORDS
+import com.example.shiftword.data.CURATED_DICTIONARY_SEED_WORDS_EN
+import com.example.shiftword.model.English
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertTrue
+import kotlin.time.measureTime
 
 /**
  * Level-pack authoring/curation tool (IMPLEMENTATION_ROADMAP.md Phase 6). Run it with:
@@ -56,6 +59,45 @@ class LevelPackGeneratorReportTool {
             rng = Random(seed + 2),
         )
         printReport("4x4 (harder scramble=40, empirically still all-exact)", harderBatch)
+    }
+
+    // Levels-41-50 tier candidate (5x5, 4 words, scrambleMoves=7): measures the metric that
+    // actually matters for on-device cost -- generateLevelPack()'s own wall-clock time for the
+    // 10 levels this tier needs -- as opposed to MoveLimitCalibrationTest's much heavier
+    // full-playthrough BFS-chain simulation (which took 41 minutes for just 25 trials and is not
+    // representative of real seeding cost, since it re-runs BFS after every simulated move).
+    @Test
+    fun generateAndReportFiveByFiveFourWordTier() {
+        val seed = 20260101L
+        lateinit var trReport: LevelPackReport
+        val trElapsed = measureTime {
+            trReport = generateLevelPack(
+                wordPool = CURATED_DICTIONARY_SEED_WORDS,
+                gridSize = 5,
+                wordsPerLevel = 4,
+                count = 10,
+                scrambleMoves = 7,
+                rng = Random(seed + 100),
+            )
+        }
+        lateinit var enReport: LevelPackReport
+        val enElapsed = measureTime {
+            enReport = generateLevelPack(
+                wordPool = CURATED_DICTIONARY_SEED_WORDS_EN,
+                gridSize = 5,
+                wordsPerLevel = 4,
+                count = 10,
+                scrambleMoves = 7,
+                rng = Random(seed + 101),
+                fillerPool = English.fillerPool,
+            )
+        }
+        printReport("5x5-4word TR", trReport)
+        printReport("5x5-4word EN", enReport)
+        println("[level-pack] 5x5-4word TR: generateLevelPack(10 levels) wall time = $trElapsed")
+        println("[level-pack] 5x5-4word EN: generateLevelPack(10 levels) wall time = $enElapsed")
+        assertTrue(trReport.successCount >= trReport.requested * 9 / 10, "5x5-4word TR success rate too low: ${trReport.successCount}/${trReport.requested}")
+        assertTrue(enReport.successCount >= enReport.requested * 9 / 10, "5x5-4word EN success rate too low: ${enReport.successCount}/${enReport.requested}")
     }
 
     private fun printReport(label: String, report: LevelPackReport) {

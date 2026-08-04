@@ -387,6 +387,20 @@ ordinary 3-word levels. `StarRating`'s 3★ threshold
 becomes more fairly achievable now that `minMovesToSolve` reflects
 completing all 3 targets instead of just the nearest one.
 
+**Addendum — levels-41-50 difficulty tier (5×5, 4 target words) confirmed against this rule, not
+a new exception to it:** the difficulty-tiering pass (`GAME_DESIGN.md` §5) added a 4-target-word
+combo that hadn't been generated/measured before. Measuring it (`LevelPackGeneratorReportTool`)
+found `minMovesIsExact = false` for all 10/10 generated levels in both languages. This is not a
+new finding or a regression — `additionalTargets == 0` in `generateLevel` above already guarantees
+`minMovesIsExact` can only ever be `true` for a single-target level, so *any* level with 2+
+targets (this project's entire pack, every tier including the existing 1-30/31-40 ones) was
+already `minMovesIsExact = false` by construction before this tier existed. The 41-50 tier simply
+confirms the same already-established rule holds at a target count (4) that hadn't been exercised
+before, with no new failure mode: `moveLimit` for this tier is still the same safe, never-unfairly-
+strict structural upper bound (`GAME_DESIGN.md`'s star-rating doc), and `MoveLimitCalibrationTest`'s
+dedicated 5×5/4-word variants confirm `exceedsMoveLimitCount == 0/25` in both languages under
+simulated optimal play.
+
 **Addendum — production OOM crash during hint requests (real-device
 manual playtesting):** `OutOfMemoryError` observed on a physical device
 (Samsung SM-A115F) inside a routine `requestHint()` call

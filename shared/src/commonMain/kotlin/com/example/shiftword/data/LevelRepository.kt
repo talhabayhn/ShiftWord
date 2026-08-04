@@ -3,7 +3,9 @@ package com.example.shiftword.data
 import com.example.shiftword.db.WordShiftDatabase
 import com.example.shiftword.model.Level
 import com.example.shiftword.model.Turkish
-import com.example.shiftword.tools.generateLevelPack
+import com.example.shiftword.tools.DEFAULT_DIFFICULTY_TIERS
+import com.example.shiftword.tools.DifficultyTier
+import com.example.shiftword.tools.generateTieredLevelPack
 import kotlin.random.Random
 
 /** Number of levels seeded per language's pack — see GAME_DESIGN.md's Level Select section.
@@ -78,25 +80,26 @@ class LevelRepository(private val database: WordShiftDatabase) {
      * is produced on every fresh install/device, which is what actually makes "level 12" a
      * stable, reproducible puzzle rather than merely a stable *identity* pointing at whatever
      * happened to generate first. Uses the existing, unmodified `generateLevel` pipeline via
-     * `generateLevelPack` (Phase 6 curation tooling) — this changes level *identity*, not the
-     * generation algorithm.
+     * `generateTieredLevelPack` (Phase 6 curation tooling, difficulty-tiered per GAME_DESIGN.md
+     * §5 — see `LevelPackGenerator.DEFAULT_DIFFICULTY_TIERS`) — this changes level *identity* and
+     * per-tier parameters, not the generation algorithm itself.
+     *
+     * [wordPool] must contain words of every grid size [tiers] references (4- and 5-letter, for
+     * the default tiers) — `AppNavHost` passes `DictionaryRepository.allWords(language)`
+     * unfiltered by length for exactly this reason; a length-4-only pool (as some pre-tiering
+     * tests used) would silently generate zero levels for the 5x5 tiers.
      */
     fun seedPackIfNeeded(
         language: String,
         wordPool: List<String>,
         fillerPool: String,
-        gridSize: Int = 4,
-        wordsPerLevel: Int = 3,
-        scrambleMoves: Int = 5,
+        tiers: List<DifficultyTier> = DEFAULT_DIFFICULTY_TIERS,
         seed: Long = 20260101L,
     ) {
         if (database.levelQueries.countForLanguage(language).executeAsOne() >= LEVEL_PACK_SIZE.toLong()) return
-        val report = generateLevelPack(
+        val report = generateTieredLevelPack(
             wordPool = wordPool,
-            gridSize = gridSize,
-            wordsPerLevel = wordsPerLevel,
-            count = LEVEL_PACK_SIZE,
-            scrambleMoves = scrambleMoves,
+            tiers = tiers,
             rng = Random(seed),
             fillerPool = fillerPool,
             language = language,

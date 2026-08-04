@@ -103,6 +103,38 @@ class MoveLimitCalibrationTest {
         )
     }
 
+    // New combo for the levels-41-50 difficulty tier (GAME_DESIGN.md §5 scaling, wired into
+    // LevelPackGenerator/LevelRepository): 5x5 grid, 4 target words (up from 3), scrambleMoves=7
+    // (up from 6). Nothing about the 3-word 5x5 calibration above can be assumed to carry over --
+    // a 4th target changes both ADDITIONAL_TARGET_MOVES_ESTIMATE's headroom and the real
+    // completion-move distribution -- so this gets its own dedicated measurement per the same
+    // hard-regression-guard standard as every other grid-size/word-count combo in this file,
+    // not shipped on assumption.
+
+    @Test
+    fun moveLimitIsCalibratedAgainstCompletingAllFourTargets5x5Turkish() {
+        val pool5 = CURATED_DICTIONARY_SEED_WORDS.filter { it.length == 5 }
+        val result = measureActualMovesToCompleteAllTargets(pool5, DEFAULT_FILLER_POOL, size = 5, scrambleMoves = 7, wordsPerLevel = 4, trialCount = 25, seedOffset = 10_000_000)
+        report("TR-5x5-4word", result)
+        assertTrue(result.unreachableCount == 0, "TR-5x5-4word: a target became permanently unreachable mid-playthrough (should be impossible per R4)")
+        assertTrue(
+            result.exceedsMoveLimitCount == 0,
+            "TR-5x5-4word: ${result.exceedsMoveLimitCount}/${result.levelsChecked} levels needed more real moves than moveLimit allowed even under optimal play",
+        )
+    }
+
+    @Test
+    fun moveLimitIsCalibratedAgainstCompletingAllFourTargets5x5English() {
+        val pool5 = CURATED_DICTIONARY_SEED_WORDS_EN.filter { it.length == 5 }
+        val result = measureActualMovesToCompleteAllTargets(pool5, English.fillerPool, size = 5, scrambleMoves = 7, wordsPerLevel = 4, trialCount = 25, seedOffset = 11_000_000)
+        report("EN-5x5-4word", result)
+        assertTrue(result.unreachableCount == 0, "EN-5x5-4word: a target became permanently unreachable mid-playthrough (should be impossible per R4)")
+        assertTrue(
+            result.exceedsMoveLimitCount == 0,
+            "EN-5x5-4word: ${result.exceedsMoveLimitCount}/${result.levelsChecked} levels needed more real moves than moveLimit allowed even under optimal play",
+        )
+    }
+
     private fun report(label: String, r: CalibrationResult) {
         val actual = r.actualMovesToCompleteAll3
         val limits = r.moveLimits
@@ -125,6 +157,7 @@ class MoveLimitCalibrationTest {
         scrambleMoves: Int,
         trialCount: Int,
         seedOffset: Int,
+        wordsPerLevel: Int = 3,
     ): CalibrationResult {
         var levelsChecked = 0
         val moveLimits = mutableListOf<Int>()
@@ -135,7 +168,7 @@ class MoveLimitCalibrationTest {
         repeat(trialCount) { i ->
             val seed = seedOffset + i
             val rng = Random(seed)
-            val targets = pool.shuffled(rng).take(3)
+            val targets = pool.shuffled(rng).take(wordsPerLevel)
             val generated = generateLevel(size = size, targetWords = targets, scrambleMoves = scrambleMoves, rng = rng, fillerPool = fillerPool) ?: return@repeat
             levelsChecked++
 

@@ -1,0 +1,23 @@
+-- Migration to v5: wipes existing `level` and `progress` data ahead of the difficulty-tiered
+-- pack regeneration (GAME_DESIGN.md §9g, §5). Levels 1-50 are being regenerated with new
+-- per-tier parameters (grid size/word count/scrambleMoves now vary by level number instead of
+-- one fixed set for the whole pack) -- level *content* changes under the same level number
+-- (different grid layout, different target words, different move limit), so any existing
+-- `progress` row (stars, best-moves) recorded against the OLD content would silently misdescribe
+-- the new content under the same level number rather than merely going stale.
+--
+-- Decision (see GAME_DESIGN.md §9g for the full reasoning): wipe both tables outright rather than
+-- attempt to reconcile or preserve old progress. This is pre-launch -- there is no real user data
+-- to protect -- and a kept-but-stale star rating would be actively misleading, not just imprecise,
+-- since it'd be displayed against a puzzle the player never actually solved in that form. This is
+-- a one-time, one-off decision tied to this specific regeneration, not a standing policy for
+-- future content changes.
+--
+-- `progress` alone would be enough to reset the main menu's aggregate stats (totalWordsFound/
+-- currentDayStreak, see ProgressRepository) since both are computed live from `progress` joined
+-- against `level`, not stored as separate counters -- wiping `level` too is what then makes
+-- `LevelRepository.seedPackIfNeeded`'s idempotent-by-count-check (`countForLanguage(language) >=
+-- LEVEL_PACK_SIZE`) re-trigger a real reseed on next app start, producing the new tiered content
+-- rather than leaving the old fixed-parameter pack in place.
+DELETE FROM progress;
+DELETE FROM level;

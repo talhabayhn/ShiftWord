@@ -23,7 +23,10 @@ class LevelRepositoryTest {
     private lateinit var driver: JdbcSqliteDriver
     private lateinit var levelRepository: LevelRepository
 
-    private val wordPool = CURATED_DICTIONARY_SEED_WORDS.filter { it.length == 4 }
+    // Unfiltered by length: seedPackIfNeeded now generates a difficulty-tiered pack
+    // (GAME_DESIGN.md §5) spanning both 4x4 (levels 1-30) and 5x5 (levels 31-50) grids, so the
+    // pool must carry both 4- and 5-letter words -- see seedPackIfNeeded's own doc comment.
+    private val wordPool = CURATED_DICTIONARY_SEED_WORDS.filter { it.length == 4 || it.length == 5 }
 
     @BeforeTest
     fun setUp() {
@@ -87,7 +90,7 @@ class LevelRepositoryTest {
 
     @Test
     fun turkishAndEnglishPacksCoexistWithoutCollidingOnLevelNumber() {
-        val englishWordPool = CURATED_DICTIONARY_SEED_WORDS_EN.filter { it.length == 4 }
+        val englishWordPool = CURATED_DICTIONARY_SEED_WORDS_EN.filter { it.length == 4 || it.length == 5 }
         levelRepository.seedPackIfNeeded(Turkish.code, wordPool, Turkish.fillerPool)
         levelRepository.seedPackIfNeeded(English.code, englishWordPool, English.fillerPool)
 
