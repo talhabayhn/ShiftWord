@@ -461,6 +461,12 @@ class GameViewModelTest {
         override fun playCascadeStep(step: Int) {
             events.add("cascade:$step")
         }
+        override fun playLevelComplete() {
+            events.add("levelComplete")
+        }
+        override fun playGameOver() {
+            events.add("gameOver")
+        }
     }
 
     /**
@@ -503,6 +509,10 @@ class GameViewModelTest {
         testScheduler.advanceUntilIdle()
 
         assertTrue(vm.uiState.value.isWon)
-        assertEquals(listOf("shift", "cascade:1"), recorder.events, "shift must be recorded before the cascade step it preceded, in real call order")
+        // Both targets complete in this single move, so this scenario also wins the level --
+        // levelComplete now legitimately fires too (GameViewModel.commit()'s new win/loss sound
+        // hook), still strictly after the shift/cascade sounds that precede the win in real call
+        // order.
+        assertEquals(listOf("shift", "cascade:1", "levelComplete"), recorder.events, "shift and cascade must be recorded before the level-complete sound that follows them, in real call order")
     }
 }

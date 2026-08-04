@@ -20,16 +20,23 @@ import kotlin.Boolean;
 -- original commits, crashing any already-installed device ("no such column") -- see 1.sqm, which
 -- retroactively fixes this for existing installs. Any FUTURE column added here must ship its own
 -- migration file in the same commit, not rely on this note as a substitute.
+--
+-- reducedMotionEnabled / darkModeEnabled: accessibility/appearance settings (GAME_DESIGN.md,
+-- ARCHITECTURE.md §7a) -- both default 0/off so the existing animated, light-themed experience is
+-- unchanged for players who never open Settings. Shipped WITH their migration (3.sqm) in the same
+-- commit, per the note above.
 CREATE TABLE settings (
     id INTEGER NOT NULL PRIMARY KEY,
     soundEnabled INTEGER AS Boolean NOT NULL DEFAULT 1,
     language TEXT NOT NULL DEFAULT 'tr',
     winHighlightEnabled INTEGER AS Boolean NOT NULL DEFAULT 0,
-    hintCredits INTEGER NOT NULL DEFAULT 3
+    hintCredits INTEGER NOT NULL DEFAULT 3,
+    reducedMotionEnabled INTEGER AS Boolean NOT NULL DEFAULT 0,
+    darkModeEnabled INTEGER AS Boolean NOT NULL DEFAULT 0
 );
 
 selectSettings:
 SELECT * FROM settings WHERE id = 0;
 
 upsertSettings:
-INSERT OR REPLACE INTO settings(id, soundEnabled, language, winHighlightEnabled, hintCredits) VALUES (0, ?, ?, ?, ?);
+INSERT OR REPLACE INTO settings(id, soundEnabled, language, winHighlightEnabled, hintCredits, reducedMotionEnabled, darkModeEnabled) VALUES (0, ?, ?, ?, ?, ?, ?);

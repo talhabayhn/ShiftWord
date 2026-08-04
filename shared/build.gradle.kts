@@ -45,6 +45,9 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.uiTooling)
             implementation(libs.sqldelight.androidDriver)
+            // WindowCompat.getInsetsController, for dark mode's status/nav-bar icon appearance --
+            // see StatusBarAppearance.android.kt.
+            implementation(libs.androidx.core.ktx)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)

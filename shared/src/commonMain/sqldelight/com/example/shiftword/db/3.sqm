@@ -1,0 +1,11 @@
+import kotlin.Boolean;
+
+-- Migration to v4: adds reducedMotionEnabled/darkModeEnabled to `settings` (GAME_DESIGN.md
+-- accessibility/appearance settings, ARCHITECTURE.md §7a). Both default 0/off, matching
+-- Settings.sq's column defaults -- see 1.sqm's doc comment for why this ships in the same commit
+-- as the column, not after (an already-installed device's DB is only ever brought up to date by
+-- Schema.migrate(), which only runs when a .sqm file bumps the schema version -- a column added
+-- without one crashes existing installs with "no such column" the next time SettingsRepository
+-- reads/writes it).
+ALTER TABLE settings ADD COLUMN reducedMotionEnabled INTEGER AS Boolean NOT NULL DEFAULT 0;
+ALTER TABLE settings ADD COLUMN darkModeEnabled INTEGER AS Boolean NOT NULL DEFAULT 0;

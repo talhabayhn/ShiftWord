@@ -29,6 +29,7 @@ import com.example.shiftword.game.efficiencyMessage
 import com.example.shiftword.game.starsFor
 import com.example.shiftword.ui.theme.CardCornerRadius
 import com.example.shiftword.ui.theme.DustyLavender
+import com.example.shiftword.ui.theme.OnAccent
 import com.example.shiftword.ui.theme.PillShape
 import com.example.shiftword.ui.theme.SageGreen
 import com.example.shiftword.ui.theme.SoftCoral
@@ -68,222 +69,244 @@ fun GameScreen(
     // (pack levels are numbered 1..50 by their own id -- see GAME_DESIGN.md §9e) and updates
     // exactly when the displayed level does.
     levelNumber: Int = 1,
+    // Reduced Motion setting (GAME_DESIGN.md): off by default, matching SettingsRepository's
+    // column default. Threaded straight through to GridBoard, which owns the actual animation
+    // specs this setting simplifies/shortens (see its own doc comment).
+    reducedMotion: Boolean = false,
 ) {
     val state by viewModel.uiState.collectAsState()
 
-    Column(
-        modifier = modifier
-            .background(MaterialTheme.colorScheme.background)
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        // UI layout pass: title area now shows the current level number, in the heading
-        // typography already used elsewhere on this screen (e.g. "Seviye Tamamlandı!"), not body
-        // text -- matches the reference's title-then-move-counter vertical order.
-        Text(
-            strings.levelNumberLabel(levelNumber),
-            style = MaterialTheme.typography.headlineSmall,
-            color = TextPrimary,
-        )
+    // Responsive layout pass: the fixed dp gaps below (previously a flat 16.dp outer padding and
+    // 12.dp/8.dp Arrangement.spacedBy values, chosen against one reference screen size) didn't
+    // scale with the actual device -- on a short/small screen they ate a disproportionate share of
+    // the vertical space the board itself needs (BoxWithConstraints below already computes
+    // cellSize responsively, but everything ABOVE it was still fixed), and on a tall/large screen
+    // they left the top info cluster looking cramped relative to how much room was actually
+    // available. Deriving these from this screen's own measured size -- the same BoxWithConstraints
+    // pattern already used one level down for cellSize -- means the whole vertical rhythm scales
+    // with the device, not just the board. Coerced to a min/max band (not scaled unbounded) so an
+    // extreme screen size can't produce gaps so small they're illegible or so large they look
+    // broken -- the same reasoning cellSize.coerceIn(56.dp, 100.dp) already uses.
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val outerPadding = (maxHeight * 0.02f).coerceIn(12.dp, 20.dp)
+        val sectionGap = (maxHeight * 0.014f).coerceIn(8.dp, 14.dp)
+        val chipGap = (maxWidth * 0.02f).coerceIn(6.dp, 10.dp)
 
-        Pill(
-            text = strings.moves(state.moveCount, state.moveLimit),
-            fill = SurfaceWhite,
-            textColor = TextPrimary,
-            border = WarmSand,
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            state.targetWords.forEach { word ->
-                val label = if (word in state.foundWords) "✓$word" else word
-                Pill(text = label, fill = SageGreen, textColor = SurfaceWhite)
-            }
-        }
-
-        // Task 1 (enlarge/center the board): the board is now this screen's visual focal point --
-        // it claims all the vertical space left over between the compact top info (move
-        // counter/target chips) and the bottom controls, and is centered within it, rather than
-        // sitting at a fixed 56.dp tile size immediately below the top info. See GridBoard's
-        // DEFAULT_CELL_SIZE doc comment for why 56.dp was never the intended final size (Shape.kt
-        // already documented the mockup's tiles as proportionally much larger).
-        BoxWithConstraints(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentAlignment = Alignment.Center,
+        Column(
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.background)
+                .fillMaxSize()
+                .padding(outerPadding),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(sectionGap),
         ) {
-            val gridSize = state.grid.size
-            val cellSize = (minOf(maxWidth, maxHeight) / gridSize).coerceIn(56.dp, 100.dp)
-            GridBoard(
-                grid = state.grid,
-                explodingCellIds = state.explodingCellIds,
-                onMove = viewModel::onMove,
-                winHighlightEnabled = winHighlightEnabled,
-                targetWords = state.remainingTargets,
-                // See GridBoard's sessionKey doc comment -- must change whenever the viewModel
-                // this GameScreen was given changes (level advance/replay), so the drag-gesture
-                // coroutine restarts and stops calling into the previous, disposed viewModel's
-                // onMove.
-                sessionKey = viewModel,
-                hintMove = state.hintMove,
-                cellSize = cellSize,
+            // UI layout pass: title area now shows the current level number, in the heading
+            // typography already used elsewhere on this screen (e.g. "Seviye Tamamlandı!"), not body
+            // text -- matches the reference's title-then-move-counter vertical order.
+            Text(
+                strings.levelNumberLabel(levelNumber),
+                style = MaterialTheme.typography.headlineSmall,
+                color = TextPrimary,
             )
 
-            // Bug fix: hint text and the win/loss block used to be plain Column siblings placed
-            // AFTER this Box. Column measures non-weighted children first and gives whatever's
-            // left to this weight(1f) Box, so every time one of them appeared or disappeared
-            // (most visibly the win-state block on completing a level), the space left for this
-            // Box changed too -- shrinking `cellSize` and re-centering the board, i.e. the board
-            // visibly moved/resized for a reason that has nothing to do with the board itself.
-            // Layering them INSIDE this same Box instead means its constraints -- and therefore
-            // the board's size and position -- come only from the weight(1f) parent, never from
-            // what's drawn alongside it; a Box's children don't affect each other's measurement.
-            //
-            // The hint texts are short (1-2 lines) and only ever shown while playing (never
-            // alongside the win/loss block below), so anchoring them to the bottom of this same
-            // fixed-size Box leaves them safely clear of the board in practice.
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (!state.isWon && !state.isLost && state.hintCreditsRemaining <= 0) {
-                    Text(strings.hintExhausted, style = MaterialTheme.typography.bodySmall, color = TextPrimary)
-                }
-                state.hintMove?.let { move ->
-                    if (!state.isWon && !state.isLost) {
-                        Text(
-                            strings.tryHint(move.axis, move.index, move.forward),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextPrimary,
-                        )
-                    }
+            Pill(
+                text = strings.moves(state.moveCount, state.moveLimit),
+                fill = SurfaceWhite,
+                textColor = TextPrimary,
+                border = WarmSand,
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(chipGap)) {
+                state.targetWords.forEach { word ->
+                    val label = if (word in state.foundWords) "✓$word" else word
+                    Pill(text = label, fill = SageGreen, textColor = OnAccent)
                 }
             }
 
-            // The win/loss block is much taller (stars, heading, two lines of text, 1-2 buttons)
-            // than the hint texts above -- anchoring IT to the bottom of the same fixed-size Box
-            // would run out of room and draw over the board's lower rows instead of sitting
-            // cleanly below it (found while verifying this exact fix on-device). Presented as a
-            // centered card overlaying the board instead -- a standard "Level Complete" pattern,
-            // and correct here anyway since the board is no longer interactive once won/lost.
-            // Still costs the board's size/position nothing: it's just another child of this same
-            // Box, not a Column sibling that would compete for weight(1f) space.
-            if (state.isWon || state.isLost) {
-                Box(
+            // Task 1 (enlarge/center the board): the board is now this screen's visual focal point --
+            // it claims all the vertical space left over between the compact top info (move
+            // counter/target chips) and the bottom controls, and is centered within it, rather than
+            // sitting at a fixed 56.dp tile size immediately below the top info. See GridBoard's
+            // DEFAULT_CELL_SIZE doc comment for why 56.dp was never the intended final size (Shape.kt
+            // already documented the mockup's tiles as proportionally much larger).
+            BoxWithConstraints(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                val gridSize = state.grid.size
+                val cellSize = (minOf(maxWidth, maxHeight) / gridSize).coerceIn(56.dp, 100.dp)
+                GridBoard(
+                    grid = state.grid,
+                    explodingCellIds = state.explodingCellIds,
+                    onMove = viewModel::onMove,
+                    winHighlightEnabled = winHighlightEnabled,
+                    targetWords = state.remainingTargets,
+                    // See GridBoard's sessionKey doc comment -- must change whenever the viewModel
+                    // this GameScreen was given changes (level advance/replay), so the drag-gesture
+                    // coroutine restarts and stops calling into the previous, disposed viewModel's
+                    // onMove.
+                    sessionKey = viewModel,
+                    hintMove = state.hintMove,
+                    cellSize = cellSize,
+                    reducedMotion = reducedMotion,
+                )
+
+                // Bug fix: hint text and the win/loss block used to be plain Column siblings placed
+                // AFTER this Box. Column measures non-weighted children first and gives whatever's
+                // left to this weight(1f) Box, so every time one of them appeared or disappeared
+                // (most visibly the win-state block on completing a level), the space left for this
+                // Box changed too -- shrinking `cellSize` and re-centering the board, i.e. the board
+                // visibly moved/resized for a reason that has nothing to do with the board itself.
+                // Layering them INSIDE this same Box instead means its constraints -- and therefore
+                // the board's size and position -- come only from the weight(1f) parent, never from
+                // what's drawn alongside it; a Box's children don't affect each other's measurement.
+                //
+                // The hint texts are short (1-2 lines) and only ever shown while playing (never
+                // alongside the win/loss block below), so anchoring them to the bottom of this same
+                // fixed-size Box leaves them safely clear of the board in practice.
+                Column(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .background(SurfaceWhite, RoundedCornerShape(CardCornerRadius))
-                        .padding(horizontal = 24.dp, vertical = 20.dp),
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    if (!state.isWon && !state.isLost && state.hintCreditsRemaining <= 0) {
+                        Text(strings.hintExhausted, style = MaterialTheme.typography.bodySmall, color = TextPrimary)
+                    }
+                    state.hintMove?.let { move ->
+                        if (!state.isWon && !state.isLost) {
+                            Text(
+                                strings.tryHint(move.axis, move.index, move.forward),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextPrimary,
+                            )
+                        }
+                    }
+                }
+
+                // The win/loss block is much taller (stars, heading, two lines of text, 1-2 buttons)
+                // than the hint texts above -- anchoring IT to the bottom of the same fixed-size Box
+                // would run out of room and draw over the board's lower rows instead of sitting
+                // cleanly below it (found while verifying this exact fix on-device). Presented as a
+                // centered card overlaying the board instead -- a standard "Level Complete" pattern,
+                // and correct here anyway since the board is no longer interactive once won/lost.
+                // Still costs the board's size/position nothing: it's just another child of this same
+                // Box, not a Column sibling that would compete for weight(1f) space.
+                if (state.isWon || state.isLost) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .background(SurfaceWhite, RoundedCornerShape(CardCornerRadius))
+                            .padding(horizontal = 24.dp, vertical = 20.dp),
                     ) {
-                        when {
-                            state.isWon -> {
-                                val stars = starsFor(state.moveCount, state.minMovesToSolve, state.moveLimit)
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    repeat(3) { i ->
-                                        Text(
-                                            if (i < stars) "★" else "☆",
-                                            style = MaterialTheme.typography.headlineSmall,
-                                            color = if (i < stars) SoftCoral else StarEmpty,
-                                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            when {
+                                state.isWon -> {
+                                    val stars = starsFor(state.moveCount, state.minMovesToSolve, state.moveLimit)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        repeat(3) { i ->
+                                            Text(
+                                                if (i < stars) "★" else "☆",
+                                                style = MaterialTheme.typography.headlineSmall,
+                                                color = if (i < stars) SoftCoral else StarEmpty,
+                                            )
+                                        }
                                     }
+                                    Text(strings.levelComplete, style = MaterialTheme.typography.headlineSmall, color = TextPrimary)
+                                    Text(
+                                        efficiencyMessage(
+                                            state.moveCount,
+                                            state.minMovesToSolve,
+                                            state.minMovesIsExact,
+                                            optimalMessage = strings.optimalMoves,
+                                            usedMessage = strings.usedMoves,
+                                        ),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = TextPrimary,
+                                    )
+                                    Text(
+                                        strings.scoreLabel(state.totalScore),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = TextPrimary,
+                                    )
+                                    Button(
+                                        onClick = onNextLevel,
+                                        shape = PillShape,
+                                        colors = ButtonDefaults.buttonColors(containerColor = DustyLavender, contentColor = OnAccent),
+                                    ) { Text(strings.nextLevel) }
+                                    Button(
+                                        onClick = onReplaySameLevel,
+                                        shape = PillShape,
+                                        colors = ButtonDefaults.buttonColors(containerColor = SurfaceWhite, contentColor = TextPrimary),
+                                        // Bug fix: this button's SurfaceWhite fill was originally
+                                        // designed to stand out against the CREAM page background --
+                                        // now that the win/loss block sits inside a SurfaceWhite card
+                                        // overlay, an unbordered white-on-white button was invisible.
+                                        // Same WarmSand border the move-counter pill already uses for
+                                        // the same reason (SurfaceWhite fill needing a visible edge).
+                                        border = BorderStroke(1.dp, WarmSand),
+                                    ) { Text(strings.playAgain) }
                                 }
-                                Text(strings.levelComplete, style = MaterialTheme.typography.headlineSmall, color = TextPrimary)
-                                Text(
-                                    efficiencyMessage(
-                                        state.moveCount,
-                                        state.minMovesToSolve,
-                                        state.minMovesIsExact,
-                                        optimalMessage = strings.optimalMoves,
-                                        usedMessage = strings.usedMoves,
-                                    ),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = TextPrimary,
-                                )
-                                Text(
-                                    strings.scoreLabel(state.totalScore),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = TextPrimary,
-                                )
-                                Button(
-                                    onClick = onNextLevel,
-                                    shape = PillShape,
-                                    colors = ButtonDefaults.buttonColors(containerColor = DustyLavender, contentColor = SurfaceWhite),
-                                ) { Text(strings.nextLevel) }
-                                Button(
-                                    onClick = onReplaySameLevel,
-                                    shape = PillShape,
-                                    colors = ButtonDefaults.buttonColors(containerColor = SurfaceWhite, contentColor = TextPrimary),
-                                    // Bug fix: this button's SurfaceWhite fill was originally
-                                    // designed to stand out against the CREAM page background --
-                                    // now that the win/loss block sits inside a SurfaceWhite card
-                                    // overlay, an unbordered white-on-white button was invisible.
-                                    // Same WarmSand border the move-counter pill already uses for
-                                    // the same reason (SurfaceWhite fill needing a visible edge).
-                                    border = BorderStroke(1.dp, WarmSand),
-                                ) { Text(strings.playAgain) }
-                            }
-                            state.isLost -> {
-                                Text(strings.outOfMoves, style = MaterialTheme.typography.headlineSmall, color = TextPrimary)
-                                Button(
-                                    onClick = onReplaySameLevel,
-                                    shape = PillShape,
-                                    colors = ButtonDefaults.buttonColors(containerColor = SurfaceWhite, contentColor = TextPrimary),
-                                    // Bug fix: this button's SurfaceWhite fill was originally
-                                    // designed to stand out against the CREAM page background --
-                                    // now that the win/loss block sits inside a SurfaceWhite card
-                                    // overlay, an unbordered white-on-white button was invisible.
-                                    // Same WarmSand border the move-counter pill already uses for
-                                    // the same reason (SurfaceWhite fill needing a visible edge).
-                                    border = BorderStroke(1.dp, WarmSand),
-                                ) { Text(strings.playAgain) }
+                                state.isLost -> {
+                                    Text(strings.outOfMoves, style = MaterialTheme.typography.headlineSmall, color = TextPrimary)
+                                    Button(
+                                        onClick = onReplaySameLevel,
+                                        shape = PillShape,
+                                        colors = ButtonDefaults.buttonColors(containerColor = SurfaceWhite, contentColor = TextPrimary),
+                                        // Bug fix: this button's SurfaceWhite fill was originally
+                                        // designed to stand out against the CREAM page background --
+                                        // now that the win/loss block sits inside a SurfaceWhite card
+                                        // overlay, an unbordered white-on-white button was invisible.
+                                        // Same WarmSand border the move-counter pill already uses for
+                                        // the same reason (SurfaceWhite fill needing a visible edge).
+                                        border = BorderStroke(1.dp, WarmSand),
+                                    ) { Text(strings.playAgain) }
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        // UI layout pass (reference: "Mobil Uygulama UI İskeleti"): Hint and back-to-Level-Select
-        // grouped side by side as two colored pill buttons, matching the reference's shape/
-        // grouping/weight -- but using this app's own established tokens, not the reference's
-        // literal colors (SoftCoral for Hint as before; SageGreen for back-to-Level-Select, the
-        // same solid-fill pattern every other colored button on this screen already uses, e.g.
-        // "Sonraki Seviye"/"Günlük Bulmaca" elsewhere -- not the reference's lighter/outlined
-        // look, to stay consistent with this app's existing button styling rather than introduce
-        // a new one).
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-        ) {
-            Button(
-                onClick = onBackToMenu,
-                shape = PillShape,
-                colors = ButtonDefaults.buttonColors(containerColor = SageGreen, contentColor = SurfaceWhite),
-            ) { Text(strings.backToLevelSelect) }
-
-            if (!state.isWon && !state.isLost) {
+            // UI layout pass (reference: "Mobil Uygulama UI İskeleti"): Hint and back-to-Level-Select
+            // grouped side by side as two colored pill buttons, matching the reference's shape/
+            // grouping/weight -- but using this app's own established tokens, not the reference's
+            // literal colors (SoftCoral for Hint as before; SageGreen for back-to-Level-Select, the
+            // same solid-fill pattern every other colored button on this screen already uses, e.g.
+            // "Sonraki Seviye"/"Günlük Bulmaca" elsewhere -- not the reference's lighter/outlined
+            // look, to stay consistent with this app's existing button styling rather than introduce
+            // a new one).
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(chipGap, Alignment.CenterHorizontally),
+            ) {
                 Button(
-                    onClick = viewModel::requestHint,
-                    // Disabled mid-cascade: a hint computed against the pre-cascade grid wouldn't
-                    // describe a move valid for whatever's about to be on screen once the
-                    // explosion/refill resolves (audit finding 4a). Feature 3 (GAME_DESIGN.md
-                    // §9c): also disabled once the global hint-credit pool is exhausted.
-                    enabled = state.explodingCellIds.isEmpty() && state.hintCreditsRemaining > 0,
+                    onClick = onBackToMenu,
                     shape = PillShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = SoftCoral, contentColor = SurfaceWhite),
-                ) { Text(strings.hintWithCredits(state.hintCreditsRemaining)) }
-            }
-        }
+                    colors = ButtonDefaults.buttonColors(containerColor = SageGreen, contentColor = OnAccent),
+                ) { Text(strings.backToLevelSelect) }
 
-        if (showDevTools) {
-            DevMenu(onForceCompleteWord = viewModel::debugForceCompleteWord, strings = strings)
+                if (!state.isWon && !state.isLost) {
+                    Button(
+                        onClick = viewModel::requestHint,
+                        // Disabled mid-cascade: a hint computed against the pre-cascade grid wouldn't
+                        // describe a move valid for whatever's about to be on screen once the
+                        // explosion/refill resolves (audit finding 4a). Feature 3 (GAME_DESIGN.md
+                        // §9c): also disabled once the global hint-credit pool is exhausted.
+                        enabled = state.explodingCellIds.isEmpty() && state.hintCreditsRemaining > 0,
+                        shape = PillShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = SoftCoral, contentColor = OnAccent),
+                    ) { Text(strings.hintWithCredits(state.hintCreditsRemaining)) }
+                }
+            }
+
+            if (showDevTools) {
+                DevMenu(onForceCompleteWord = viewModel::debugForceCompleteWord, strings = strings)
+            }
         }
     }
 }

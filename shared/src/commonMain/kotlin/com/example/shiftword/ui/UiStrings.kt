@@ -51,6 +51,10 @@ data class UiStrings(
     // Deliberately not reusing "İpucu"/"Hint" -- that phrase now also names the hint-credit
     // economy (Feature 3) and reusing it here would blur two unrelated assists in Settings.
     val winHighlightLabel: String,
+    // Accessibility/appearance settings (GAME_DESIGN.md, ARCHITECTURE.md §7a). Both off by
+    // default -- see SettingsRepository's isReducedMotionEnabled/isDarkModeEnabled.
+    val reducedMotionLabel: String,
+    val darkModeLabel: String,
     // Level Select feature (GAME_DESIGN.md): shown as this screen's title, and as a short label
     // under a locked (not-yet-reachable) level card.
     val levelSelectTitle: String,
@@ -102,6 +106,8 @@ val TurkishStrings = UiStrings(
     languageTurkish = "Türkçe",
     languageEnglish = "İngilizce",
     winHighlightLabel = "Kazanan Hamle Vurgusu",
+    reducedMotionLabel = "Az Hareket",
+    darkModeLabel = "Karanlık Mod",
     levelSelectTitle = "Seviye Seç",
     levelLocked = "Kilitli",
     backToLevelSelect = "← Seviyeler",
@@ -144,6 +150,8 @@ val EnglishStrings = UiStrings(
     languageTurkish = "Turkish",
     languageEnglish = "English",
     winHighlightLabel = "Winning Move Highlight",
+    reducedMotionLabel = "Reduced Motion",
+    darkModeLabel = "Dark Mode",
     levelSelectTitle = "Select Level",
     levelLocked = "Locked",
     backToLevelSelect = "← Levels",

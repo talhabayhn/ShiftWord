@@ -19,9 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.shiftword.ui.theme.DustyLavender
+import com.example.shiftword.ui.theme.OnAccent
 import com.example.shiftword.ui.theme.PillShape
 import com.example.shiftword.ui.theme.SageGreen
-import com.example.shiftword.ui.theme.SurfaceWhite
 import com.example.shiftword.ui.theme.TextPrimary
 
 data class MainMenuStats(val wordsFound: Long, val dayStreak: Int)
@@ -59,14 +59,14 @@ fun MainMenuScreen(
                 onClick = onPlay,
                 modifier = Modifier.fillMaxWidth(),
                 shape = PillShape,
-                colors = ButtonDefaults.buttonColors(containerColor = DustyLavender, contentColor = SurfaceWhite),
+                colors = ButtonDefaults.buttonColors(containerColor = DustyLavender, contentColor = OnAccent),
             ) { Text(strings.play, style = MaterialTheme.typography.titleLarge) }
 
             Button(
                 onClick = onDailyPuzzle,
                 modifier = Modifier.fillMaxWidth(),
                 shape = PillShape,
-                colors = ButtonDefaults.buttonColors(containerColor = SageGreen, contentColor = SurfaceWhite),
+                colors = ButtonDefaults.buttonColors(containerColor = SageGreen, contentColor = OnAccent),
             ) { Text(strings.dailyPuzzle, style = MaterialTheme.typography.titleMedium) }
 
             OutlinedButton(
