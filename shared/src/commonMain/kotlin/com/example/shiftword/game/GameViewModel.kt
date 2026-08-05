@@ -406,14 +406,11 @@ class GameViewModel(
         // (near-instant, not literally instant).
         private const val REDUCED_EXPLOSION_DELAY_MS = 60L
 
-        // TEMPORARY (Task 3): set back to false to restore normal hint-credit gating -- see
-        // requestHint's doc comment at the check site for what this bypasses and why it's safe
-        // (SettingsRepository's hintCredits infrastructure itself is untouched). While true, this
-        // intentionally fails GameViewModelHintCreditsTest's
-        // requestHintConsumesOneGlobalCreditPerAcceptedRequestAndBlocksAtZero (it asserts the
-        // gate blocks requests at 0 credits, which is exactly what this flag bypasses) -- that is
-        // expected, not a regression to chase; the test passes again the moment this flips back.
-        private const val UNLIMITED_HINTS_FOR_TESTING = true // set false after test
+        // Restored to false (Task 3's playtesting bypass is over) -- see requestHint's doc comment
+        // at the check site for what this gates and why leaving it true would have been safe to
+        // leave on longer if needed (SettingsRepository's hintCredits infrastructure itself was
+        // never touched by this flag, only this local gate check).
+        private const val UNLIMITED_HINTS_FOR_TESTING = false
 
         // Shared by every GameViewModel instance, not created per-instance: AppNavHost builds a
         // new GameViewModel on every level transition/replay (remember(currentLevel, attempt)),
