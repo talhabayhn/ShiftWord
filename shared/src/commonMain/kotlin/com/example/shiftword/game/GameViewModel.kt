@@ -421,13 +421,17 @@ class GameViewModel(
         // same guarantee this class's other doc comments rely on -- a single logical worker that
         // drains its queued tasks strictly in submission order, so playShift()/playCascadeStep()
         // calls can never reorder or run concurrently -- but limitedParallelism(1) is a *view*
-        // over Dispatchers.IO's existing thread pool rather than a dedicated OS thread, so there's
-        // no native resource to leak and nothing that needs an explicit close() this class has no
-        // hook to call. It's also not a delicate API (unlike newSingleThreadContext, which
-        // requires @OptIn(DelicateCoroutinesApi::class) precisely because it allocates a real
-        // thread callers are expected to close) -- this is the standard library's own recommended
-        // replacement for exactly this "I just want single-threaded serialization" use case, per
+        // over an existing thread pool rather than a dedicated OS thread, so there's no native
+        // resource to leak and nothing that needs an explicit close() this class has no hook to
+        // call. It's also not a delicate API (unlike newSingleThreadContext, which requires
+        // @OptIn(DelicateCoroutinesApi::class) precisely because it allocates a real thread callers
+        // are expected to close) -- this is the standard library's own recommended replacement for
+        // exactly this "I just want single-threaded serialization" use case, per
         // newSingleThreadContext's own doc comment.
-        private val defaultSoundDispatcher: CoroutineDispatcher by lazy { Dispatchers.IO.limitedParallelism(1) }
+        //
+        // Dispatchers.Default, not Dispatchers.IO: Dispatchers.IO is internal (not public API) on
+        // Kotlin/Native, so commonMain code targeting iOS can't reference it -- it only compiles on
+        // JVM/Android. Default is the multiplatform-safe choice here.
+        private val defaultSoundDispatcher: CoroutineDispatcher by lazy { Dispatchers.Default.limitedParallelism(1) }
     }
 }
