@@ -13,7 +13,6 @@ import com.example.shiftword.model.Level
 import com.example.shiftword.model.Move
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -21,7 +20,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.newSingleThreadContext
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
@@ -406,23 +404,30 @@ class GameViewModel(
         // (near-instant, not literally instant).
         private const val REDUCED_EXPLOSION_DELAY_MS = 60L
 
-        // TEMPORARY (Task 3): set back to false to restore normal hint-credit gating -- see
-        // requestHint's doc comment at the check site for what this bypasses and why it's safe
-        // (SettingsRepository's hintCredits infrastructure itself is untouched). While true, this
-        // intentionally fails GameViewModelHintCreditsTest's
-        // requestHintConsumesOneGlobalCreditPerAcceptedRequestAndBlocksAtZero (it asserts the
-        // gate blocks requests at 0 credits, which is exactly what this flag bypasses) -- that is
-        // expected, not a regression to chase; the test passes again the moment this flips back.
-        private const val UNLIMITED_HINTS_FOR_TESTING = true // set false after test
+        // Restored to false (Task 3's playtesting bypass is over) -- see requestHint's doc comment
+        // at the check site for what this gates and why leaving it true would have been safe to
+        // leave on longer if needed (SettingsRepository's hintCredits infrastructure itself was
+        // never touched by this flag, only this local gate check).
+        private const val UNLIMITED_HINTS_FOR_TESTING = false
 
         // Shared by every GameViewModel instance, not created per-instance: AppNavHost builds a
         // new GameViewModel on every level transition/replay (remember(currentLevel, attempt)),
-        // and a per-instance dedicated thread would leak a thread on every one of those, since
-        // CloseableCoroutineDispatcher needs an explicit close() this class has no hook to call.
-        // One dedicated thread for the whole app's sound effects is also all that's ever needed:
+        // and a per-instance dedicated thread would leak a thread on every one of those. One
+        // dedicated thread for the whole app's sound effects is also all that's ever needed:
         // moves/cascades are inherently sequential from a single player's perspective, so there's
         // no throughput reason to want more than one thread here.
-        @OptIn(ExperimentalCoroutinesApi::class)
-        private val defaultSoundDispatcher: CoroutineDispatcher by lazy { newSingleThreadContext("SoundEffects") }
+        //
+        // limitedParallelism(1) instead of newSingleThreadContext("SoundEffects"): both give the
+        // same guarantee this class's other doc comments rely on -- a single logical worker that
+        // drains its queued tasks strictly in submission order, so playShift()/playCascadeStep()
+        // calls can never reorder or run concurrently -- but limitedParallelism(1) is a *view*
+        // over Dispatchers.IO's existing thread pool rather than a dedicated OS thread, so there's
+        // no native resource to leak and nothing that needs an explicit close() this class has no
+        // hook to call. It's also not a delicate API (unlike newSingleThreadContext, which
+        // requires @OptIn(DelicateCoroutinesApi::class) precisely because it allocates a real
+        // thread callers are expected to close) -- this is the standard library's own recommended
+        // replacement for exactly this "I just want single-threaded serialization" use case, per
+        // newSingleThreadContext's own doc comment.
+        private val defaultSoundDispatcher: CoroutineDispatcher by lazy { Dispatchers.IO.limitedParallelism(1) }
     }
 }
