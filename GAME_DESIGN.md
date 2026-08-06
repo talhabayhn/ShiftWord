@@ -57,15 +57,18 @@ see open design questions below).
 **Wired into pack generation as of the difficulty-tiering pass** (`LevelPackGenerator.
 DEFAULT_DIFFICULTY_TIERS`, `LevelRepository.seedPackIfNeeded`) — before this, every level in the
 50-level pack used the same fixed parameters regardless of position; the curve below was design
-intent that was never actually connected to the persisted-pack model (Phase 9e). Four tiers, each
-escalating grid size, target word count, and move-limit tightness cumulatively:
+intent that was never actually connected to the persisted-pack model (Phase 9e). Escalates grid
+size, target word count, and move-limit tightness cumulatively, with a sixth tier added by the
+50→100 pack expansion (§9i) that escalates via move-limit `buffer` instead — see that section for
+why:
 
-| Levels | Grid size | Target words | scrambleMoves |
-|---|---|---|---|
-| 1–10 | 4×4 | 2 | 5 |
-| 11–30 | 4×4 | 3 | 5 |
-| 31–40 | 5×5 | 3 | 6 |
-| 41–50 | 5×5 | 4 | 7 |
+| Levels | Grid size | Target words | scrambleMoves | buffer |
+|---|---|---|---|---|
+| 1–10 | 4×4 | 2 | 5 | 3 (default) |
+| 11–30 | 4×4 | 3 | 5 | 3 (default) |
+| 31–40 | 5×5 | 3 | 6 | 3 (default) |
+| 41–50 | 5×5 | 4 | 7 | 3 (default) |
+| 51–100 | 5×5 | 4 | 7 | 2 |
 
 **Word overlap density does NOT increase monotonically across tiers — this is a correction to
 this section's earlier (aspirational, never-measured) claim that density rises with every tier.**
@@ -76,6 +79,7 @@ Measured real-scale intersection rates (`GeneratorMetricsTest`, both curated dic
 | 11–30 (4×4, 3 words) | 30.4% | 29.4% |
 | 31–40 (5×5, 3 words) | 42.2% | 55.2% |
 | 41–50 (5×5, 4 words) | 10.0% | 20.6% |
+| 51–100 (5×5, 4 words) | 10.0% | 20.6% (same combo as 41–50, not separately measured) |
 
 The 41–50 drop is judged an inherent geometric ceiling — 4 target words competing for a 5×5
 grid's 10 rows/columns leaves mathematically less room per word than the 3-word tier, not a
@@ -325,55 +329,31 @@ preserving orphaned progress against regenerated content. This reasoning is one-
 this specific regeneration — it does not establish a standing policy of wiping progress on future
 content changes; see `4.sqm`'s own comment and `ARCHITECTURE.md` §9 for the migration mechanics.
 
-**Addendum — a third migration in the same category (5.sqm, §9h):** level 1's onboarding-tuned
-regeneration (carved out of the original 1-10 tier into its own single-level range with
-`scrambleMoves=2` instead of 5 — see §9h) changes level 1's actual puzzle content the same way the
-difficulty-tiering pass above changed every level's content: same level *number*, different grid
-layout and move limit underneath it. `5.sqm` wipes `level`/`progress` again, for the identical
-reason this section already gives — pre-launch, no real user data to preserve, and a kept progress
-row would misdescribe regenerated content rather than merely go stale. This is now the **third**
-migration in this project's "pre-launch progress reset" pattern:
-
-1. `2.sqm` (Level Select) — the one exception: **kept**, not wiped. Old ad-hoc rows predated the
-   pack model entirely and were still valid content, just missing a `language` tag, so tagging
-   them `'tr'` was correct rather than destructive.
-2. `4.sqm` (difficulty-tiering) — **wiped**. The pack's content changed under the same level
-   numbers, so kept progress would misdescribe it.
-3. `5.sqm` (level 1's onboarding scramble) — **wiped**, same reasoning as `4.sqm`, applied to a
-   single level's content change rather than the whole pack.
-
-The distinction that actually matters, restated for a future reader who might reach for "wipe" or
-"keep" without rederiving it: wipe when the level *content* referenced by an existing progress row
-changes underneath the same identity; keep (and just tag/backfill) when the row's content is still
-valid and only its *schema* changed. Each of these three migrations independently arrived at the
-correct side of that distinction — this note exists so the next one doesn't have to rediscover it
-from three separate `.sqm` comments.
-
 ## 9h. First-Time Onboarding (added post-launch)
 
-A one-time, first-install-only sequence for a brand-new player, built entirely on existing
-systems (settings persistence, the hint-nudge animation, the win-highlight setting, the existing
-inline win-state block) rather than any new onboarding-specific infrastructure.
+A one-time, first-install-only sequence for a brand-new player, built entirely on existing systems
+(settings persistence, the hint-nudge animation, the win-highlight setting, the existing inline
+win-state block) rather than any new onboarding-specific infrastructure.
 
 **Gate: `hasSeenOnboarding`.** A persisted boolean (`SettingsRepository`, `Settings.sq`/`6.sqm`),
 same read-then-`INSERT OR REPLACE` pattern as every other setting, defaulting false. Not
 re-triggerable from Settings — there is no "replay onboarding" option, and no setter exists to
 flip it back to false once true. Every onboarding surface below is derived from a single pure
 function, `isOnboardingLevel(hasSeenOnboarding, levelNumber) = !hasSeenOnboarding && levelNumber
-== 1` (`game/OnboardingLogic.kt`) — kept standalone and unit-tested (`OnboardingLogicTest`) for the
-same reason `buildLevelSelectEntries` was: this is exactly the kind of state-transition condition
-this project has gotten wrong before via untested ad-hoc reasoning, and four independent copies of
-it at four call sites could drift apart in a way one shared function can't.
+== 1` (`game/OnboardingLogic.kt`) — kept standalone and unit-tested (`OnboardingLogicTest`) for
+the same reason `buildLevelSelectEntries` was: this is exactly the kind of state-transition
+condition this project has gotten wrong before via untested ad-hoc reasoning, and four independent
+copies of it at four call sites could drift apart in a way one shared function can't.
 
 **Level 1's own content — tighter scramble, not a separate generation path.** Investigated before
 building anything else (see §9g's addendum above for the migration this required): measured
-directly (`MoveLimitCalibrationTest`), the original tier-1 parameters (`scrambleMoves=5`, 2 words,
+directly (`MoveLimitCalibrationTest`), the original tier-1 parameters (scrambleMoves=5, 2 words,
 4×4) required ~4.9 real moves on average (1-9 range, 500 trials) under optimal play —
 indistinguishable in difficulty from an ordinary early-game puzzle, not a "close to solved
 already" teaching moment for a player who has never performed the drag-to-shift gesture before.
 Level 1 was carved out of the original 1-10 tier into its own single-level `DifficultyTier` entry
-with `scrambleMoves=2` (`LevelPackGenerator.DEFAULT_DIFFICULTY_TIERS`), measuring ~2.8 moves on
-average (1-6 range). Deliberately **not** a separate onboarding-only generation path: level 1 is a
+with scrambleMoves=2 (`LevelPackGenerator.DEFAULT_DIFFICULTY_TIERS`), measuring ~2.8 moves on
+average (1-6 range). Deliberately not a separate onboarding-only generation path: level 1 is a
 single, fixed-seed, persisted puzzle generated once for the whole pack like every other level, so
 there's no need to hedge against a wide real-world distribution the way a per-install-random
 tier's average would — and keeping level 1 permanently the easiest level in the pack (onboarding
@@ -384,7 +364,7 @@ unwinding after a player's first session.
 constructor flag; when true (`AppNavHost` passes `isOnboardingLevel(...)`), `init{}` calls
 `autoPlayOnboardingHint()` — the same `bfsMinMovesToAnyTarget` call and the same `hintMove`
 null→non-null transition `GridBoard`'s existing nudge animation (§9d) already keys on, just
-triggered automatically instead of by a player tapping Hint. Deliberately does **not** go through
+triggered automatically instead of by a player tapping Hint. Deliberately does not go through
 `requestHint()`'s credit-gate/decrement/`onHintUsed()` path — spending a hint credit on something
 the player never asked for would be indistinguishable from a real hint they didn't request.
 `GameUiState.isOnboardingHint` is set alongside `hintMove` so `GameScreen` can show a short
@@ -399,28 +379,29 @@ only to the value threaded to `GameScreen`/`GridBoard`; `setWinHighlightEnabled`
 so the player's real persisted preference is untouched and takes over unmodified from level 2
 onward (or immediately, if they already had it on).
 
-**Step 5 — contextual hint-button callout.** `GameViewModel` tracks
-`movesSinceLastMatch` (reset to 0 whenever a move finds any word, including incidentally via
-cascade) and exposes `hintButtonCalloutVisible`, gated by a `hintButtonCalloutEligible` flag (same
-`isOnboardingLevel`-derived source as step 3) and a threshold (`hintButtonCalloutThresholdMoves`,
-default 3 consecutive no-match moves). A private `hintCalloutShownOnce` guard means it fires at
-most once per `GameViewModel` instance regardless of how much further no-match play follows —
-"only ever shown once" is enforced structurally, not by a soft re-check. Visible for exactly the
-move that crossed the threshold, dismissed by the next move or immediately by an actual `Hint` tap
-(`requestHint` explicitly clears it — the player found the button, there's nothing left to point
-at). Rendered as the existing `Pill` composable (same tokens as every other chip on the screen)
-placed directly above the Hint button — no new visual language, no coordinate-overlay machinery.
+**Step 5 — contextual hint-button callout.** `GameViewModel` tracks `movesSinceLastMatch` (reset
+to 0 whenever a move finds any word, including incidentally via cascade) and exposes
+`hintButtonCalloutVisible`, gated by a `hintButtonCalloutEligible` flag (same
+`isOnboardingLevel`-derived source as step 3) and a threshold
+(`hintButtonCalloutThresholdMoves`, default 3 consecutive no-match moves). A private
+`hintCalloutShownOnce` guard means it fires at most once per `GameViewModel` instance regardless
+of how much further no-match play follows — "only ever shown once" is enforced structurally, not
+by a soft re-check. Visible for exactly the move that crossed the threshold, dismissed by the next
+move or immediately by an actual Hint tap (`requestHint` explicitly clears it — the player found
+the button, there's nothing left to point at). Rendered as the existing `Pill` composable (same
+tokens as every other chip on the screen) placed directly above the Hint button — no new visual
+language, no coordinate-overlay machinery.
 
 **Step 6 — first-win explanation, and the flag flip.** `GameScreen`'s existing inline win-state
 block (§7a/§7b — never a separate route) gains one conditional `Text` between the score label and
 the action buttons, shown when `isOnboardingLevel` (computed once per `GAMEPLAY` composable entry,
-so it stays correctly true for this specific win screen's whole lifetime even after the flag
-flips underneath it — see below). The flag itself flips inside the *existing*
-`onLevelCompleted` callback `AppNavHost` already wires to `GameViewModel` — no new callback was
-added: `if (!settingsRepository.isHasSeenOnboarding()) settingsRepository.setHasSeenOnboarding(true)`,
+so it stays correctly true for this specific win screen's whole lifetime even after the flag flips
+underneath it — see below). The flag itself flips inside the existing `onLevelCompleted` callback
+`AppNavHost` already wires to `GameViewModel` — no new callback was added:
+`if (!settingsRepository.isHasSeenOnboarding()) settingsRepository.setHasSeenOnboarding(true)`,
 right after the existing `progressRepository.recordCompletion(...)` call. No explicit level-number
 check is needed there: Level Select's unlock logic (§9e) keeps every level but 1 locked until it
-has a completion record, so the *first* completion `onLevelCompleted` is ever called for is, by
+has a completion record, so the first completion `onLevelCompleted` is ever called for is, by
 construction, always level 1's, while `hasSeenOnboarding` is still false.
 
 **Why one shared gate is safe for all four steps.** Because `isOnboardingLevel` is re-derived
@@ -429,7 +410,7 @@ composable is newly entered, and because `hasSeenOnboarding` only ever transitio
 step 6, never back), every one of steps 3-5 naturally stops firing forever the moment the player
 completes level 1 for the first time — there's no separate "have I shown this specific thing
 before" flag needed for the hint nudge or the win-highlight override, only for the callout (which
-needs "at most once *within* a single still-onboarding session," a strictly narrower guarantee
+needs "at most once within a single still-onboarding session," a strictly narrower guarantee
 `hintCalloutShownOnce` provides locally). Replaying level 1 before ever winning it (e.g. quitting
 back to Level Select and re-entering) is expected to re-show steps 3-5 — `hasSeenOnboarding` is
 still false, so `isOnboardingLevel` is still true, and there is nothing else it should mean for a
@@ -448,10 +429,64 @@ the auto-played hint fires without consuming a credit or calling `onHintUsed` wh
 true and never fires when false; `isOnboardingHint` clears on the next real move or hint request;
 the callout fires exactly once at the threshold, never fires when ineligible, and is dismissed by
 either the next move or a real hint request; a match resets the no-match streak so the callout
-doesn't fire early. `LevelPackGeneratorTierTest` guards the tier-config split itself (level 1's
-`scrambleMoves=2`, levels 2-10 unchanged, every level 1-50 covered by exactly one tier).
-`SettingsRepositoryTest` covers `hasSeenOnboarding`'s persistence/no-clobber behavior and the
-`5.sqm`/`6.sqm` migration path from a real pre-existing v4 database.
+doesn't fire early. `LevelPackGeneratorTierTest.everyLevelNumberFrom1To100IsCoveredByExactlyOneTier`
+guards the tier-config split itself (level 1's scrambleMoves=2, levels 2-10 unchanged, every level
+1-100 covered by exactly one tier — widened from its original 1-50 scope when §9i's pack expansion
+landed; see that section). `SettingsRepositoryTest` covers `hasSeenOnboarding`'s
+persistence/no-clobber behavior and the `5.sqm`/`6.sqm` migration path from a real pre-existing v4
+database.
+
+## 9i. Pack Expansion: 50 → 100 Levels (added post-launch)
+
+`LEVEL_PACK_SIZE` (`LevelRepository.kt`) raised from 50 to 100, with a sixth `DifficultyTier`
+(`LevelPackGenerator.DEFAULT_DIFFICULTY_TIERS`) covering the new levels 51-100.
+
+**Escalation lever: move-limit `buffer`, not a deeper `scrambleMoves`.** The natural continuation
+of §5's curve would have been a deeper `scrambleMoves` (tried at 9, 12, and 15, continuing 41-50's
+escalation pattern) — abandoned after a `MoveLimitCalibrationTest` probe at scrambleMoves=9 (5×5,
+4 words) didn't complete even a single 5-trial run in 20+ minutes of active CPU time. This
+strongly suggests a deeper scramble routinely pushes `bfsMinMovesToAnyTarget`'s nearest-target
+search past `BFS_HARD_DEPTH_CAP=5` into the expensive exhaustive-search path
+(`ALGORITHM_VALIDATION.md` R4) far more often than scrambleMoves=7 does — and that's the same BFS
+call a real Hint request runs in production, so this was a real signal that levels 51+ could make
+Hint feel laggy or freeze-prone on real devices, not just a slow test. `DifficultyTier` instead
+gained a `buffer` field (default 3, matching `generateLevel`'s own default, so tiers 1-50 are
+untouched) threaded through to `generateLevel`'s existing `buffer` parameter — levels 51-100 keep
+41-50's exact grid size, word count, and scrambleMoves (identical BFS cost profile, zero new
+generation risk) and get their difficulty purely from less move slack against the same real
+distance.
+
+**`buffer=1` was measured and rejected, not just left untried.** A tighter final stretch (levels
+71-100 at buffer=1, with 51-70 at buffer=2) was the first design — measured directly
+(`MoveLimitCalibrationTest`, 25-trial real-playthrough simulation per language, same methodology
+as the existing 41-50 calibration): buffer=1 passed English cleanly (0/25) but failed Turkish at
+2/25 (8.0%) — a real failure by this project's hard-zero standard
+(`ALGORITHM_VALIDATION.md` R4's "must be exactly zero, not a soft/reduced-rate threshold"
+precedent), not noise. buffer=2 passed both languages cleanly (TR 0/25, EN 0/25). Levels 51-100
+therefore ship as a single tier at buffer=2, not a two-step escalation — a further difficulty
+lever for this range (a validated deeper scrambleMoves, a 5-word 5×5 combo, or something else) is
+future work, not shipped on an unvalidated value.
+`LevelPackGeneratorTierTest.levels51To100ReuseThe41To50GeometryButWithATighterBuffer` guards this
+directly, and no buffer=1 test is kept in `MoveLimitCalibrationTest` (a lingering assertion
+against a config that fails for Turkish would just be a permanently-failing test).
+
+**No new `.sqm` migration, unlike the three prior pre-launch resets** (§9g's addendum). Wiping
+`level`/`progress` was the pattern for `4.sqm` (difficulty-tiering) and `5.sqm` (level 1's
+onboarding scramble) because those changed EXISTING levels' content under the same level numbers —
+a kept progress row would misdescribe regenerated content. This expansion is different: it only
+appends NEW tiers after the existing five, and `LevelPackGenerator`/
+`LevelRepository.seedPackIfNeeded` consume a deterministic, fixed-seed RNG sequence strictly in
+tier order — since tiers 1-50's own parameters and position in that sequence are completely
+unchanged, regenerating the pack after `LEVEL_PACK_SIZE` bumps to 100 reproduces levels 1-50
+byte-identically (re-inserted via the existing `INSERT OR REPLACE`, a no-op) while genuinely
+adding 51-100 as new rows. No schema change either, so no migration file is needed at all —
+`seedPackIfNeeded`'s existing idempotent-by-count check (`countForLanguage(language) >=
+LEVEL_PACK_SIZE`) already does the right thing the next time an existing install starts up. This
+isn't just reasoned about: proven directly by
+`LevelRepositoryTest.expandingThePackSizePreservesExistingLevelsAndProgress`, which seeds a
+pre-expansion 1-50-only pack, records a real completion, reseeds through the same production
+codepath now resolving `LEVEL_PACK_SIZE=100`, and asserts level 12's content and its progress row
+both survive untouched while levels 51 and 100 now exist.
 
 ## 9. Turkish-Language-Specific Design Notes
 

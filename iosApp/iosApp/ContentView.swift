@@ -4,11 +4,7 @@ import Shared
 
 struct ComposeView: UIViewControllerRepresentable {
     func makeUIViewController(context: Self.Context) -> UIViewController {
-        #if DEBUG
-        MainViewControllerKt.MainViewController(showDevTools: true)
-        #else
-        MainViewControllerKt.MainViewController(showDevTools: false)
-        #endif
+        MainViewControllerKt.MainViewController()
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Self.Context) {}

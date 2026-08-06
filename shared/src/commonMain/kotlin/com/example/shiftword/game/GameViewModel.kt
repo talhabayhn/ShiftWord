@@ -148,10 +148,11 @@ class GameViewModel(
     }
 
     /**
-     * Debug/playtest-only: force the current grid to spell one remaining target word outright,
-     * then run it through the exact same match/explosion/cascade path as a real move — this is
-     * not a simulated stand-in, it exercises the production resolveCascade call. Gated by the
-     * caller (only a debug-build UI surface should invoke this), never by GameViewModel itself.
+     * Test-only: force the current grid to spell one remaining target word outright, then run it
+     * through the exact same match/explosion/cascade path as a real move — this is not a
+     * simulated stand-in, it exercises the production resolveCascade call. No longer reachable
+     * from any UI surface (the in-app dev menu that used to call this was removed); kept because
+     * GameViewModelScoreTest/GameViewModelTest use it directly to exercise that production path.
      */
     fun debugForceCompleteWord() {
         val state = _uiState.value

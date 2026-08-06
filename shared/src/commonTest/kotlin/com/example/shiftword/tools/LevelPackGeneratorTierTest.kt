@@ -24,9 +24,28 @@ class LevelPackGeneratorTierTest {
     }
 
     @Test
-    fun everyLevelNumberFrom1To50IsCoveredByExactlyOneTier() {
+    fun everyLevelNumberFrom1To100IsCoveredByExactlyOneTier() {
         val covered = DEFAULT_DIFFICULTY_TIERS.flatMap { it.levelRange.toList() }
-        assertEquals((1..50).toList(), covered.sorted(), "every level 1-50 must be covered")
+        assertEquals((1..100).toList(), covered.sorted(), "every level 1-100 must be covered")
         assertEquals(covered.size, covered.toSet().size, "no level number may be covered by more than one tier")
+    }
+
+    @Test
+    fun levels51To100ReuseThe41To50GeometryButWithATighterBuffer() {
+        // Pack expansion (GAME_DESIGN.md §5): levels 51-100 must stay on the same grid/word-count/
+        // scrambleMoves combo as 41-50 (already validated -- see MoveLimitCalibrationTest and
+        // GeneratorMetricsTest's density guards) and differ ONLY by a tighter buffer. A future edit
+        // that drifts scrambleMoves or wordsPerLevel here would silently invalidate that existing
+        // calibration/density coverage without a test catching it.
+        val tier41to50 = DEFAULT_DIFFICULTY_TIERS.first { it.levelRange == 41..50 }
+        val tier51to100 = DEFAULT_DIFFICULTY_TIERS.first { it.levelRange == 51..100 }
+
+        assertEquals(tier41to50.gridSize, tier51to100.gridSize, "51-100 must keep 41-50's grid size")
+        assertEquals(tier41to50.wordsPerLevel, tier51to100.wordsPerLevel, "51-100 must keep 41-50's word count")
+        assertEquals(tier41to50.scrambleMoves, tier51to100.scrambleMoves, "51-100 must keep 41-50's scrambleMoves -- deeper scrambles were measured to risk expensive BFS exhaustive search, see the tier's own doc comment")
+        assertEquals(3, tier41to50.buffer, "sanity: 41-50 must still use the default buffer")
+        // buffer=1 was measured and rejected (2/25, 8.0% exceeded the limit for Turkish) --
+        // buffer=2 is the validated floor, not an arbitrary choice.
+        assertEquals(2, tier51to100.buffer, "51-100's buffer must stay at the calibrated-safe value of 2, not drift back toward the rejected buffer=1")
     }
 }

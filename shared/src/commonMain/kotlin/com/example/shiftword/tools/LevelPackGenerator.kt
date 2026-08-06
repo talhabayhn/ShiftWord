@@ -33,6 +33,10 @@ fun generateLevelPack(
     rng: Random,
     maxAttemptsMultiplier: Int = 20,
     fillerPool: String = DEFAULT_FILLER_POOL,
+    // Levels 51-100 (GAME_DESIGN.md §5 tier extension): escalates difficulty via a tighter
+    // move-limit buffer rather than a deeper scrambleMoves -- see DEFAULT_DIFFICULTY_TIERS' doc
+    // comment for why scrambleMoves was ruled out as the lever for this range.
+    buffer: Int = 3,
     // Level Select feature (GAME_DESIGN.md): stamped onto every entry's Level so the pack is
     // scoped to the language its target words came from. `nextId` below is this pack's stable,
     // deterministic numbering -- see LevelRepository.seedPackIfNeeded and 2.sqm's doc
@@ -54,7 +58,7 @@ fun generateLevelPack(
     while (entries.size < count && attempts < maxAttempts) {
         attempts++
         val targets = pool.shuffled(rng).take(wordsPerLevel)
-        val generated = generateLevel(gridSize, targets, scrambleMoves, rng, fillerPool = fillerPool)
+        val generated = generateLevel(gridSize, targets, scrambleMoves, rng, buffer = buffer, fillerPool = fillerPool)
         if (generated == null) {
             failedAttempts++
             continue
@@ -77,6 +81,11 @@ data class DifficultyTier(
     val gridSize: Int,
     val wordsPerLevel: Int,
     val scrambleMoves: Int,
+    // Levels 51-100 (GAME_DESIGN.md §5 tier extension): default 3 matches generateLevel's own
+    // default, so every pre-existing tier (1-50) is unaffected unless a tier explicitly overrides
+    // it. See DEFAULT_DIFFICULTY_TIERS' doc comment for why the new tiers tighten this instead of
+    // scrambleMoves.
+    val buffer: Int = 3,
 )
 
 /**
@@ -101,12 +110,40 @@ data class DifficultyTier(
  * distribution the way a per-tier average does. Levels 2-10 keep the original parameters
  * unchanged -- this is a one-level-only carve-out, not a tier-wide difficulty change.
  */
+// Levels 51-100 (GAME_DESIGN.md §5 tier extension, pack expansion 50->100): escalates via a
+// tighter move-limit buffer instead of a deeper scrambleMoves. scrambleMoves was tried first
+// (9/12/15, continuing 41-50's escalation pattern) and abandoned: a MoveLimitCalibrationTest
+// probe at scrambleMoves=9/5x5/4-word didn't complete even a single 5-trial run in 20+ minutes
+// of active CPU time, strongly suggesting a deeper scramble routinely pushes
+// bfsMinMovesToAnyTarget's nearest-target search past BFS_HARD_DEPTH_CAP=5, forcing the
+// expensive exhaustive-search path (see ALGORITHM_VALIDATION.md R4) far more often than 41-50's
+// scrambleMoves=7 does. That same BFS call is what a real Hint request runs in production, so
+// this wasn't just a slow test -- it was a real signal that levels 51+ could make Hint feel
+// laggy or freeze-prone on real devices. Buffer reduction keeps every generation parameter
+// (grid size, word count, scrambleMoves) IDENTICAL to the already-shipped, already-fast 41-50
+// tier -- same BFS cost profile, zero new risk -- and gets its difficulty purely from giving the
+// player less slack against the same real distance.
+//
+// A single buffer=2 tier, not two tiers stepping down to buffer=1: measured directly
+// (MoveLimitCalibrationTest), buffer=2 passed both languages cleanly (TR 0/25, EN 0/25), but
+// buffer=1 -- tried for a tighter final 71-100 tier -- passed English (0/25) and FAILED Turkish
+// at 2/25 (8.0%), a real failure by this project's hard-zero standard, not noise. Levels 51-100
+// are therefore one tier, not a two-step escalation; a further difficulty lever for this range is
+// future work, not shipped speculatively on an unvalidated buffer value.
 val DEFAULT_DIFFICULTY_TIERS = listOf(
     DifficultyTier(1..1, gridSize = 4, wordsPerLevel = 2, scrambleMoves = 2),
-    DifficultyTier(2..10, gridSize = 4, wordsPerLevel = 2, scrambleMoves = 5),
+    // Early-game generosity (item 5): +2 move-limit buffer over the default 3, so a new player's
+    // first real levels (level 1 itself is separately tuned for onboarding, see above) have more
+    // room for mistakes while still learning the drag-to-shift mechanic. Safe by construction,
+    // not something that needed recalibration: buffer only ever ADDS to moveLimit (`generateLevel`:
+    // moveLimit = minMoves + buffer), so this can only make an already-passing level MORE
+    // forgiving, never risk exceedsMoveLimitCount regressing on MoveLimitCalibrationTest's
+    // existing hard-zero guards.
+    DifficultyTier(2..10, gridSize = 4, wordsPerLevel = 2, scrambleMoves = 5, buffer = 5),
     DifficultyTier(11..30, gridSize = 4, wordsPerLevel = 3, scrambleMoves = 5),
     DifficultyTier(31..40, gridSize = 5, wordsPerLevel = 3, scrambleMoves = 6),
     DifficultyTier(41..50, gridSize = 5, wordsPerLevel = 4, scrambleMoves = 7),
+    DifficultyTier(51..100, gridSize = 5, wordsPerLevel = 4, scrambleMoves = 7, buffer = 2),
 )
 
 /**
@@ -137,6 +174,7 @@ fun generateTieredLevelPack(
             count = count,
             scrambleMoves = tier.scrambleMoves,
             rng = rng,
+            buffer = tier.buffer,
             maxAttemptsMultiplier = maxAttemptsMultiplier,
             fillerPool = fillerPool,
             language = language,
