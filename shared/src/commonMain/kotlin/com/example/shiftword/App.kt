@@ -22,13 +22,9 @@ import com.example.shiftword.navigation.AppNavHost
 import com.example.shiftword.ui.ApplyStatusBarAppearance
 import com.example.shiftword.ui.theme.WordShiftTheme
 
-// Debug/playtest tooling only (see GameScreen's DevMenu) — the app shell (androidApp's real
-// BuildConfig.DEBUG, iosApp's #if DEBUG) decides this, not shared code itself, since a KMP
-// common module has no reliable cross-platform notion of "is this a debug build" on its own.
 @Composable
 @Preview
 fun App(
-    showDevTools: Boolean = false,
     databaseDriverFactory: DatabaseDriverFactory,
     // Real sound files (SOUND_SOURCING.md): constructed by the platform entry point
     // (MainActivity.kt / MainViewController.kt), same reasoning as databaseDriverFactory above --
@@ -64,7 +60,6 @@ fun App(
         ) {
             AppNavHost(
                 database = database,
-                showDevTools = showDevTools,
                 settingsRepository = settingsRepository,
                 soundEffectsFactory = soundEffectsFactory,
                 darkModeEnabled = darkModeEnabled,

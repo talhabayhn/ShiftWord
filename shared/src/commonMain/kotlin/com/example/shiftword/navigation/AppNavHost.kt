@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.compose.NavHost
@@ -62,7 +63,6 @@ private object Routes {
 @Composable
 fun AppNavHost(
     database: WordShiftDatabase,
-    showDevTools: Boolean = false,
     // Dark mode / Reduced Motion (added post-launch, GAME_DESIGN.md/ARCHITECTURE.md §7a):
     // constructed by the caller (App.kt) rather than here, and the current
     // darkModeEnabled/reducedMotionEnabled values are passed in rather than read fresh from the
@@ -117,7 +117,18 @@ fun AppNavHost(
     // enters composition (matches this file's existing pattern of sharing state via AppNavHost-
     // scoped `remember`s rather than nav-route arguments -- e.g. `languageCode` above -- since
     // this app's navigation graph has no argument-passing machinery set up).
-    var selectedLevelNumber by remember { mutableIntStateOf(1) }
+    //
+    // rememberSaveable, not plain remember (real-device finding): Navigation Compose's own back
+    // stack is SavedState-backed and correctly restores the GAMEPLAY destination across process
+    // death, but this plain-remember Int wasn't -- it silently reset to its default (1) on
+    // recreation, so a process reclaimed while the player was on, say, level 40 would land back
+    // on what LOOKS like ordinary resumed gameplay but is actually level 1's puzzle, substituted
+    // with no error and no indication anything went wrong. rememberSaveable is the standard,
+    // low-risk mechanism for exactly this: a trivially-saveable Int, no custom Saver needed. This
+    // does NOT restore in-progress grid/move-count state within a level -- GameViewModel itself
+    // still has no SavedStateHandle wiring, so the level resumed via this correctly-restored
+    // number still restarts fresh, which remains an accepted, separate gap.
+    var selectedLevelNumber by rememberSaveable { mutableIntStateOf(1) }
 
     NavHost(navController = navController, startDestination = Routes.SPLASH) {
         composable(Routes.SPLASH) {
@@ -248,7 +259,6 @@ fun AppNavHost(
 
             GameScreen(
                 viewModel = viewModel,
-                showDevTools = showDevTools,
                 onBackToMenu = { navController.popBackStack() },
                 onReplaySameLevel = { attempt++ },
                 onNextLevel = {

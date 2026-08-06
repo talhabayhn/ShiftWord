@@ -21,9 +21,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.example.shiftword.game.GameViewModel
 import com.example.shiftword.game.efficiencyMessage
 import com.example.shiftword.game.starsFor
@@ -42,9 +47,6 @@ import com.example.shiftword.ui.theme.WarmSand
 fun GameScreen(
     viewModel: GameViewModel,
     modifier: Modifier = Modifier,
-    // Debug/playtest surface only — the caller (app shell) decides whether this is shown,
-    // per the debug-build-only gating requirement; GameViewModel itself has no notion of it.
-    showDevTools: Boolean = false,
     // Level Select feature: despite the name (kept for git-blame continuity), this now pops back
     // to Level Select, not necessarily the Main Menu -- see backToLevelSelect's doc comment.
     onBackToMenu: () -> Unit = {},
@@ -81,6 +83,26 @@ fun GameScreen(
     isOnboardingLevel: Boolean = false,
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    // Bug fix (real-device finding): the onboarding auto-played hint (GameViewModel.init ->
+    // autoPlayOnboardingHint) resolves its BFS call fast enough that state.hintMove routinely goes
+    // non-null WHILE this destination's Level-Select-to-gameplay enter transition is still
+    // animating, so both GridBoard's nudge animation and the swipe-bubble text below used to
+    // start/appear mid-slide-in rather than once the player can actually see and focus on the
+    // board. Navigation Compose deliberately holds a destination's own NavBackStackEntry lifecycle
+    // below RESUMED until its enter transition finishes -- ON_RESUME is therefore a real "this
+    // screen is now visually settled" signal, not an arbitrary delay layered on top of the
+    // transition. `screenSettled` is a one-way latch (never reset back to false): once this
+    // destination has resumed once, any later ON_RESUME (e.g. the whole app backgrounding/
+    // foregrounding while this screen is still showing) is harmless to re-observe. Only gates the
+    // ONBOARDING hint specifically -- a player-requested Hint (state.isOnboardingHint == false)
+    // only ever fires long after this screen has settled (the player had to see and tap the
+    // button), so it's intentionally left completely unaffected by this gate.
+    var screenSettled by remember { mutableStateOf(false) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        screenSettled = true
+    }
+    val displayedHintMove = if (state.isOnboardingHint && !screenSettled) null else state.hintMove
 
     // Responsive layout pass: the fixed dp gaps below (previously a flat 16.dp outer padding and
     // 12.dp/8.dp Arrangement.spacedBy values, chosen against one reference screen size) didn't
@@ -152,7 +174,7 @@ fun GameScreen(
                     // coroutine restarts and stops calling into the previous, disposed viewModel's
                     // onMove.
                     sessionKey = viewModel,
-                    hintMove = state.hintMove,
+                    hintMove = displayedHintMove,
                     cellSize = cellSize,
                     reducedMotion = reducedMotion,
                 )
@@ -180,7 +202,7 @@ fun GameScreen(
                     if (!state.isWon && !state.isLost && state.hintCreditsRemaining <= 0) {
                         Text(strings.hintExhausted, style = MaterialTheme.typography.bodySmall, color = TextPrimary)
                     }
-                    state.hintMove?.let { move ->
+                    displayedHintMove?.let { move ->
                         if (!state.isWon && !state.isLost) {
                             // Onboarding (GAME_DESIGN.md §9h): the unprompted, auto-played first
                             // hint shows a short instructional bubble instead of the normal
@@ -338,10 +360,6 @@ fun GameScreen(
                     }
                 }
             }
-
-            if (showDevTools) {
-                DevMenu(onForceCompleteWord = viewModel::debugForceCompleteWord, strings = strings)
-            }
         }
     }
 }
@@ -361,14 +379,3 @@ private fun Pill(text: String, fill: androidx.compose.ui.graphics.Color, textCol
     }
 }
 
-@Composable
-private fun DevMenu(onForceCompleteWord: () -> Unit, strings: UiStrings) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(strings.debugTools, style = MaterialTheme.typography.labelLarge, color = TextPrimary)
-        Button(
-            onClick = onForceCompleteWord,
-            shape = PillShape,
-            colors = ButtonDefaults.buttonColors(containerColor = WarmSand, contentColor = TextPrimary),
-        ) { Text(strings.forceCompleteWord) }
-    }
-}

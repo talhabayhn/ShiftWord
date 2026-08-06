@@ -18,7 +18,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             App(
-                showDevTools = BuildConfig.DEBUG,
                 databaseDriverFactory = DatabaseDriverFactory(applicationContext),
                 soundEffectsFactory = SoundEffectsFactory(applicationContext),
             )

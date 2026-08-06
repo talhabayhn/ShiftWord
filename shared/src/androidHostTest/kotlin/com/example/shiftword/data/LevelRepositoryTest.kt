@@ -4,6 +4,7 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.example.shiftword.db.WordShiftDatabase
 import com.example.shiftword.model.English
 import com.example.shiftword.model.Turkish
+import com.example.shiftword.tools.DEFAULT_DIFFICULTY_TIERS
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -120,5 +121,38 @@ class LevelRepositoryTest {
         levelRepository.insert(replacement)
 
         assertEquals(replacement, levelRepository.findById(1, Turkish.code))
+    }
+
+    @Test
+    fun expandingThePackSizePreservesExistingLevelsAndProgress() {
+        // Pack expansion (GAME_DESIGN.md §5, LEVEL_PACK_SIZE 50 -> 100): unlike 4.sqm/5.sqm's
+        // "wipe on content change" migrations, this expansion doesn't need one -- deterministic,
+        // fixed-seed generation means the ORIGINAL five tiers, replayed in the same order against
+        // the same seed, reproduce levels 1-50 byte-identically, so an existing player's progress on
+        // them stays valid. Simulates a real pre-expansion install (seeded with just the original
+        // five tiers, an old LEVEL_PACK_SIZE=50 world) that then goes through the same
+        // seedPackIfNeeded idempotent-by-count codepath a real app upgrade hits -- not a special
+        // migration path, the existing mechanism already does the right thing.
+        val oldTiers = DEFAULT_DIFFICULTY_TIERS.filter { it.levelRange.last <= 50 }
+        levelRepository.seedPackIfNeeded(Turkish.code, wordPool, Turkish.fillerPool, tiers = oldTiers)
+        val levelTwelveBeforeExpansion = assertNotNull(levelRepository.findById(12, Turkish.code))
+        assertNull(levelRepository.findById(51, Turkish.code), "sanity: the pre-expansion pack must not already have level 51")
+
+        val progressRepository = ProgressRepository(createDatabase(driver))
+        progressRepository.recordCompletion(levelId = 12, stars = 3, bestMoves = 5, completedAtEpochMillis = 0L, language = Turkish.code)
+
+        // The real upgrade path: same call, now resolving LEVEL_PACK_SIZE=100 and the full tier
+        // list -- seedPackIfNeeded's own count check (50 < 100) correctly decides to reseed.
+        levelRepository.seedPackIfNeeded(Turkish.code, wordPool, Turkish.fillerPool)
+
+        assertEquals(levelTwelveBeforeExpansion, levelRepository.findById(12, Turkish.code), "level 12's content must regenerate byte-identically -- same seed, same tier order up to 50")
+        assertNotNull(levelRepository.findById(51, Turkish.code), "level 51 must now exist after the expansion")
+        assertNotNull(levelRepository.findById(100, Turkish.code), "level 100 must now exist after the expansion")
+        assertEquals(LEVEL_PACK_SIZE, levelRepository.allForLanguage(Turkish.code).size)
+        assertEquals(
+            3,
+            progressRepository.byLevelForLanguage(Turkish.code)[12]?.stars,
+            "existing progress on level 12 must survive the expansion untouched -- its content didn't change, so there's nothing to invalidate it",
+        )
     }
 }

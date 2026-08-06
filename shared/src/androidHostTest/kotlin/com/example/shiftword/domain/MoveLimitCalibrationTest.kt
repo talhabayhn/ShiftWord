@@ -135,6 +135,52 @@ class MoveLimitCalibrationTest {
         )
     }
 
+    // Levels 51-100 pack expansion (GAME_DESIGN.md §5 tier extension): reuses the exact 41-50
+    // grid/word-count/scrambleMoves combo (5x5, 4 targets, scrambleMoves=7) -- already covered by
+    // GeneratorMetricsTest's density guards (a pure function of grid size/word count) and by this
+    // file's own moveLimitIsCalibratedAgainstCompletingAllFourTargets5x5* tests above (same BFS
+    // cost profile, already fast). Escalates difficulty via a tighter move-limit `buffer` instead
+    // of a deeper scrambleMoves -- scrambleMoves=9/12/15 was tried first and abandoned: a probe at
+    // scrambleMoves=9 didn't complete even a single 5-trial run in 20+ minutes of active CPU time,
+    // strongly suggesting a deeper scramble routinely pushes bfsMinMovesToAnyTarget's nearest-target
+    // search past BFS_HARD_DEPTH_CAP=5 into the expensive exhaustive-search path (ALGORITHM_
+    // VALIDATION.md R4) far more often than scrambleMoves=7 does -- the same BFS call a real Hint
+    // request runs in production, so this was a real signal of potential on-device lag, not just a
+    // slow test. Buffer reduction changes nothing about generation cost, only how much move slack
+    // the player gets against the same real distance.
+    //
+    // buffer=1 was measured and REJECTED, not just untested: it passed English (0/25) but failed
+    // Turkish at 2/25 (8.0%) -- a real, non-noise failure rate by this project's hard-zero standard
+    // (see the R4 addendum's "must be exactly zero, not a soft/reduced-rate threshold" precedent).
+    // buffer=2 passed both languages cleanly (TR 0/25, EN 0/25) and is what levels 51-100 actually
+    // ship with -- see DEFAULT_DIFFICULTY_TIERS' doc comment. No buffer=1 test is kept here since
+    // that combo isn't shipped anywhere; a lingering test asserting it passes would just be a
+    // permanently-failing assertion for the Turkish case.
+
+    @Test
+    fun moveLimitIsCalibratedAgainstCompletingAllFourTargets5x5Buffer2Turkish() {
+        val pool5 = CURATED_DICTIONARY_SEED_WORDS.filter { it.length == 5 }
+        val result = measureActualMovesToCompleteAllTargets(pool5, DEFAULT_FILLER_POOL, size = 5, scrambleMoves = 7, wordsPerLevel = 4, buffer = 2, trialCount = 25, seedOffset = 12_000_000)
+        report("TR-5x5-4word-buffer2", result)
+        assertTrue(result.unreachableCount == 0, "TR-5x5-4word-buffer2: a target became permanently unreachable mid-playthrough (should be impossible per R4)")
+        assertTrue(
+            result.exceedsMoveLimitCount == 0,
+            "TR-5x5-4word-buffer2: ${result.exceedsMoveLimitCount}/${result.levelsChecked} levels needed more real moves than moveLimit allowed even under optimal play",
+        )
+    }
+
+    @Test
+    fun moveLimitIsCalibratedAgainstCompletingAllFourTargets5x5Buffer2English() {
+        val pool5 = CURATED_DICTIONARY_SEED_WORDS_EN.filter { it.length == 5 }
+        val result = measureActualMovesToCompleteAllTargets(pool5, English.fillerPool, size = 5, scrambleMoves = 7, wordsPerLevel = 4, buffer = 2, trialCount = 25, seedOffset = 13_000_000)
+        report("EN-5x5-4word-buffer2", result)
+        assertTrue(result.unreachableCount == 0, "EN-5x5-4word-buffer2: a target became permanently unreachable mid-playthrough (should be impossible per R4)")
+        assertTrue(
+            result.exceedsMoveLimitCount == 0,
+            "EN-5x5-4word-buffer2: ${result.exceedsMoveLimitCount}/${result.levelsChecked} levels needed more real moves than moveLimit allowed even under optimal play",
+        )
+    }
+
     private fun report(label: String, r: CalibrationResult) {
         val actual = r.actualMovesToCompleteAll3
         val limits = r.moveLimits
@@ -158,6 +204,7 @@ class MoveLimitCalibrationTest {
         trialCount: Int,
         seedOffset: Int,
         wordsPerLevel: Int = 3,
+        buffer: Int = 3,
     ): CalibrationResult {
         var levelsChecked = 0
         val moveLimits = mutableListOf<Int>()
@@ -169,7 +216,7 @@ class MoveLimitCalibrationTest {
             val seed = seedOffset + i
             val rng = Random(seed)
             val targets = pool.shuffled(rng).take(wordsPerLevel)
-            val generated = generateLevel(size = size, targetWords = targets, scrambleMoves = scrambleMoves, rng = rng, fillerPool = fillerPool) ?: return@repeat
+            val generated = generateLevel(size = size, targetWords = targets, scrambleMoves = scrambleMoves, rng = rng, buffer = buffer, fillerPool = fillerPool) ?: return@repeat
             levelsChecked++
 
             var grid = generated.levelGrid
